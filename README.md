@@ -6,6 +6,12 @@ tavola tecnica quotata in PDF e DXF generata dal modello.
 L'oggetto è un contenitore per elettronica in due pezzi: scatola 80 × 46 × 27 mm con una cupola
 paraboloidica sul fianco, e coperchio 73.86 × 46 × 2.5 mm.
 
+Esiste in due forme, che condividono lo stesso codice di calcolo:
+
+* la **pipeline da riga di comando**, completa e verificata (fasi 1–5);
+* la **web app**, un runner della stessa pipeline in cui si carica un OBJ e si segue tutto dal
+  browser — analisi, decisioni sulle quote, build, tavola, download.
+
 ## Struttura
 
 ```
@@ -14,10 +20,25 @@ tools/     analisi della mesh        misura, segmentazione, sezioni, render, con
 cad/       costruzione               params.json (quote misurate), build_model.py,
                                      make_drawing.py, draft2d.py (motore 2D)
 output/    STEP, STL, FCStd, PDF, DXF, SVG
-docs/      lost+found_design.md, BUILD-LOG.md, CONVENTIONS.md
+docs/      lost+found_design.md, BUILD-LOG.md, CONVENTIONS.md, webapp-architecture.md
+
+core/      generico — non sa nulla del pezzo
+  freecad/     runner headless: stdin chiuso, timeout, argomenti, sentinella
+  mesh/        caricamento e misura della mesh
+  provenance/  registro quote e decisioni: la regola non negoziabile, in codice
+  plugin.py    il contratto PartPlugin e il registry dei pezzi
+parts/     specifico del pezzo
+  teiser/      contenitore TAISER: cabla tools/ e cad/ dentro la pipeline web
+  demo_box/    implementazione di riferimento di PartPlugin
+webapp/
+  backend/   FastAPI, coda job in-process, SQLite, log SSE
+  frontend/  React + Vite + three.js
 ```
 
-## Come rigenerare
+Regola di collocazione: **se contiene un numero, un nome di feature o un'assunzione geometrica del
+pezzo, sta in `parts/`. Tutto il resto è `core/`.**
+
+## Come rigenerare (riga di comando)
 
 ```bash
 .venv/bin/python tools/extract_params.py
@@ -27,6 +48,34 @@ docs/      lost+found_design.md, BUILD-LOG.md, CONVENTIONS.md
 ```
 
 Il `< /dev/null` è necessario: senza, FreeCAD esegue lo script e resta appeso sulla console.
+Nel backend web lo stesso vincolo è `stdin=DEVNULL` dentro `core/freecad/runner.py`, insieme alle
+altre trappole verificate (vedi `docs/BUILD-LOG.md`).
+
+## Web app
+
+```bash
+pip install -r webapp/backend/requirements.txt
+export FREECAD_BIN=/Applications/FreeCAD.app/Contents/MacOS/FreeCAD   # macOS
+export TEISER_DB_PATH=./data/teiser.db TEISER_RUNS_DIR=./data/runs
+uvicorn webapp.backend.app.main:app --reload --port 8000
+
+cd webapp/frontend && npm install && npm run dev     # http://localhost:5173
+```
+
+Il dev server inoltra `/api` al backend: niente CORS da configurare. Senza FreeCAD l'app parte lo
+stesso — analisi, tabella delle quote, decisioni e anteprima della tavola funzionano; solo la build
+è disabilitata, e l'intestazione lo dice.
+
+In Docker:
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
+
+L'immagine porta FreeCAD 1.1.3 da conda-forge — la stessa minor del Mac di sviluppo — e il build
+fallisce se lo smoke test headless non passa.
+
+Test: `python -m pytest tests/ -q`. Quelli che richiedono FreeCAD si saltano da soli se non c'è.
 
 ## Il punto da sapere
 
@@ -35,7 +84,11 @@ coincidono al millesimo col bounding box della mesh perché è stata generata da
 tace su tutto il resto — cavità, spessori, cupola, fori, colonnine. L'unica fonte reale di quote è
 la mesh. Vedi [docs/lost+found_design.md](docs/lost+found_design.md) §2.1 e [LORE.md](LORE.md).
 
+Da qui la regola non negoziabile: **nessuna quota inventata**. Nella web app non è una convenzione
+ma `core/provenance/`: una build con anche una sola quota non misurata né approvata non parte.
+
 ## Stato
 
 Fasi 1–5 completate. Scostamento modello ↔ mesh: mediana 0.015 mm (scatola), 0.013 mm (coperchio).
-Dettagli e punti aperti in [STATE.md](STATE.md).
+Dettagli e punti aperti in [STATE.md](STATE.md); architettura della web app in
+[docs/webapp-architecture.md](docs/webapp-architecture.md).

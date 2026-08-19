@@ -1,0 +1,154 @@
+:root {
+  --bg: #12141a;
+  --panel: #1a1d26;
+  --panel-2: #212533;
+  --line: #2e3446;
+  --text: #e6e9f0;
+  --muted: #9aa3b8;
+  --accent: #6ea8fe;
+  --ok: #4ec9a5;
+  --warn: #e8b447;
+  --bad: #e8685d;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: #10131a; border-color: var(--accent); font-weight: 600; }
+
+input, select, textarea {
+  font: inherit;
+  color: var(--text);
+  background: #0e1017;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+header.app {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+header.app h1 { font-size: 16px; margin: 0; letter-spacing: 0.02em; }
+header.app .sub { color: var(--muted); font-size: 12px; }
+
+main { padding: 20px 24px 60px; max-width: 1180px; margin: 0 auto; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.panel > h2 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.panel .hint { color: var(--muted); font-size: 12px; margin: 0 0 14px; line-height: 1.5; }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+
+table.dims { width: 100%; border-collapse: collapse; }
+table.dims th, table.dims td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.dims th { color: var(--muted); font-weight: 500; font-size: 12px; }
+table.dims td.num { font-variant-numeric: tabular-nums; text-align: right; }
+table.dims tr.blocking { background: rgba(232, 104, 93, 0.08); }
+table.dims tr.diverging { background: rgba(232, 180, 71, 0.07); }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.badge.ok { color: var(--ok); }
+.badge.warn { color: var(--warn); }
+.badge.bad { color: var(--bad); }
+
+.provenance { color: var(--muted); font-size: 12px; }
+
+.log {
+  background: #0b0d13;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.decision {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
+  background: var(--panel-2);
+}
+.decision h3 { margin: 0 0 2px; font-size: 14px; }
+.decision .kind { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.decision .evidence {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+  margin: 10px 0;
+}
+.option { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; }
+.option .consequence { color: var(--muted); font-size: 12px; }
+
+.viewer { width: 100%; height: 420px; border: 1px solid var(--line); border-radius: 8px; background: #0b0d13; }
+.drawing { background: #fff; border-radius: 8px; padding: 12px; overflow: auto; }
+.drawing svg { max-width: 100%; height: auto; }
+
+.error { color: var(--bad); font-size: 13px; margin: 8px 0 0; }
+.note { color: var(--warn); font-size: 12px; }
+
+ul.files { list-style: none; padding: 0; margin: 0; display: flex; gap: 8px; flex-wrap: wrap; }
+ul.files a {
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  display: inline-block;
+}
+ul.files a:hover { border-color: var(--accent); }
+ul.files .size { color: var(--muted); font-size: 11px; }
