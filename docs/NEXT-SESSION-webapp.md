@@ -46,22 +46,22 @@ cask e usato headless. Ogni step costa 5–20 s.
 Risultato raggiunto: scostamento modello ↔ mesh con mediana **0.015 mm** (scatola) e **0.013 mm**
 (coperchio); ingombri identici alla tavola di riferimento.
 
-## LA DOMANDA DA FARMI PER PRIMA (non partire senza risposta)
+## Scopo: deciso, non da rinegoziare
 
 Il codice attuale è **specifico per questo pezzo**: `cad/params.json` ha uno schema modellato sul
 contenitore TAISER (cupola paraboloidica, 4 colonnine di cui una diversa, asole, tasche ellittiche),
-e `build_model.py` costruisce esattamente quelle feature. Ci sono due prodotti molto diversi:
+e `build_model.py` costruisce esattamente quelle feature.
 
-- **(A) Runner web di questa pipeline.** L'utente carica un OBJ, l'app esegue analisi → parametri →
-  modello → tavola e restituisce gli output, con la possibilità di modificare i parametri da form e
-  rilanciare. Realistico, incrementale, riusa tutto. Ma funziona bene solo su pezzi di questa
-  famiglia.
-- **(B) Strumento generico di reverse engineering.** Riconoscimento automatico delle feature su una
-  mesh qualsiasi, con costruzione guidata. È un progetto di ricerca, molto più grande, e va
-  affrontato per gradi.
+**Voglio un runner web di questa pipeline.** L'utente carica un OBJ, l'app esegue analisi →
+parametri → modello → tavola e restituisce gli output, con la possibilità di modificare i parametri
+da form e rilanciare. Riusa tutto quello che c'è, e va bene che funzioni sui pezzi di questa
+famiglia: **non** voglio ora uno strumento generico di reverse engineering con riconoscimento
+automatico delle feature su una mesh qualsiasi. Quello semmai verrà dopo, su queste fondamenta.
 
-Chiedimi quale dei due voglio (e se (B), se partire da (A) come fondamenta) **prima di progettare
-qualsiasi cosa**. Chiedimi anche stack e hosting: la mia preferenza di default, da confermare, è
+Corollario pratico: quando una feature del pezzo non è generalizzabile, **non fermarti a chiedere se
+generalizzarla** — lasciala specifica, ma isolala dietro un confine chiaro (vedi «Cosa mi aspetto»).
+
+Restano da chiedermi solo stack e hosting. La mia preferenza di default, da confermare, è
 FastAPI + coda di job + frontend React/Vite con three.js per l'anteprima 3D, tutto in un
 monorepo, deploy via Docker. E chiedimi se il repo deve andare su GitHub (oggi non c'è remote).
 
@@ -115,7 +115,7 @@ autorevole.
 
 ## Cosa mi aspetto da te
 
-- Prima le domande di scoping qui sopra, poi un piano.
+- Chiedimi stack e hosting, poi un piano. Lo scopo è già deciso: non riaprirlo.
 - Non buttare via il codice esistente: `draft2d.py`, i tool di analisi e `compare_model_mesh.py`
   sono verificati e vanno riusati.
 - Separa presto ciò che è **specifico del pezzo** (lo schema di `params.json`, le feature costruite
