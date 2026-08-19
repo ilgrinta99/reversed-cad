@@ -11,6 +11,16 @@
 #   freecad 1.1.3 py311h1922e53_0 · occt 7.9.3 · python 3.11 · numpy 2.4.6
 #   import FreeCAD/Part/TechDraw ok, export STEP+STL ok, uno script gira in ~0.3 s.
 
+# Il frontend si costruisce a parte: un'immagine Node non serve nell'immagine
+# finale, solo il risultato di `vite build`.
+FROM node:22-slim AS frontend
+WORKDIR /app/webapp/frontend
+COPY webapp/frontend/package.json webapp/frontend/package-lock.json ./
+RUN npm ci
+COPY webapp/frontend ./
+RUN npm run build
+
+
 FROM mambaorg/micromamba:2.3-debian12-slim AS base
 
 USER root
@@ -53,7 +63,12 @@ RUN freecad -c /app/docker/freecad_smoke.py < /dev/null
 
 COPY core /app/core
 COPY parts /app/parts
+COPY tools /app/tools
+COPY cad /app/cad
 COPY webapp/backend /app/webapp/backend
+
+# Il build statico del frontend: main.py lo monta su "/" se la cartella esiste.
+COPY --from=frontend /app/webapp/frontend/dist /app/webapp/frontend/dist
 
 ENV PYTHONPATH=/app \
     TEISER_RUNS_DIR=/data/runs \
@@ -63,4 +78,6 @@ RUN mkdir -p /data/runs
 VOLUME ["/data"]
 
 EXPOSE 8000
-CMD ["uvicorn", "webapp.backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Forma shell, non exec: PaaS come Render iniettano $PORT e si aspettano che
+# l'app lo usi, invece della porta fissa. In locale resta 8000.
+CMD uvicorn webapp.backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}

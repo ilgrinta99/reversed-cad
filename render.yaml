@@ -1,0 +1,18 @@
+# Blueprint per Render (render.com): un solo servizio web, build dall'immagine
+# Docker in docker/Dockerfile. Pensato per un link di prova pubblico, non per un
+# deploy permanente — vedi le note nel README sotto "Deploy di prova (Render)".
+#
+# Il piano gratuito di Render non ha dischi persistenti: /data (run, SQLite)
+# viene azzerato a ogni riavvio o redeploy. Per un uso reale serve un piano a
+# pagamento con un disco allegato.
+services:
+  - type: web
+    name: teiser-webapp
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: TEISER_JOB_TIMEOUT_S
+        value: "600"

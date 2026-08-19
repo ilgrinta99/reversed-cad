@@ -205,15 +205,29 @@ Verificato girando davvero, su Linux con FreeCAD conda-forge:
 * pipeline completa dal browser su una mesh caricata: analisi 10 s, build 6 s,
   tavola 2 s, confronto 10 s.
 
+Aggiunto per un link di prova pubblico: il Dockerfile costruisce ora anche il
+frontend (stage Node separato, `dist/` copiato nell'immagine finale — prima
+mancava, e l'immagine sarebbe partita senza interfaccia) e copia `tools/` e
+`cad/`, che `parts/teiser/plugin.py` invoca via subprocess e che l'immagine non
+portava. `render.yaml` in radice descrive un servizio Render a piano gratuito;
+il bottone "Deploy to Render" è in README. Non ancora provato un deploy reale —
+manca l'accesso a un account Render da questa sessione — quindi resta da
+verificare sul campo, non solo per lettura del Dockerfile.
+
 Da fare, in ordine:
 
-1. `docker build` vero: FreeCAD conda-forge è stato verificato installandolo
-   direttamente — è quel che fa il Dockerfile — ma nel container di sviluppo non
-   c'era un demone Docker.
-2. Ripulitura dei run: 47 MB ciascuno, di cui 44 di STL a tassellazione fine.
-3. Impaginazione della tavola modificabile dal browser: oggi i tre fogli si
+1. **Primo deploy reale su Render**, per verificare che il fix del Dockerfile
+   basti: build dell'immagine entro i tempi del piano gratuito, avvio entro i
+   512 MB di RAM, smoke test FreeCAD nel build.
+2. `docker build` locale, se mai disponibile un demone Docker: finora FreeCAD è
+   stato verificato installando conda-forge direttamente, che è ciò che fa il
+   Dockerfile ma non è la stessa prova.
+3. Ripulitura dei run: 47 MB ciascuno, di cui 44 di STL a tassellazione fine. Su
+   un piano gratuito senza disco persistente il problema è mitigato dal riavvio
+   periodico, ma non risolto.
+4. Impaginazione della tavola modificabile dal browser: oggi i tre fogli si
    sfogliano, non si ricompongono.
-4. Un secondo pezzo della famiglia, per mettere alla prova il confine di §3.
+5. Un secondo pezzo della famiglia, per mettere alla prova il confine di §3.
 
 ## 9. Rischi aperti
 

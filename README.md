@@ -77,6 +77,28 @@ fallisce se lo smoke test headless non passa.
 
 Test: `python -m pytest tests/ -q`. Quelli che richiedono FreeCAD si saltano da soli se non c'è.
 
+### Deploy di prova (Render)
+
+Per un link pubblico su cui provare la pipeline, senza tenere nulla acceso in locale:
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ilgrinta99/reversed-cad)
+
+Il bottone usa `render.yaml` in radice: build dell'immagine di `docker/Dockerfile` (FreeCAD
+compreso), un solo servizio web, piano gratuito. Richiede un account Render collegato a GitHub —
+lo crea Render al primo click, non serve prepararlo prima.
+
+Limiti del piano gratuito, da sapere prima di usarlo:
+
+- **Nessun disco persistente.** `/data` (i run, il database SQLite) viene azzerato a ogni riavvio
+  o redeploy: va bene per provare la pipeline, non per tenere risultati.
+- **Il servizio si addormenta dopo 15 minuti di inattività** e la prima richiesta successiva
+  impiega un po' a risvegliarlo (l'immagine con FreeCAD è pesante).
+- **512 MB di RAM.** La build di un pezzo con FreeCAD può avvicinarsi al limite; se un job va in
+  errore senza un messaggio chiaro, è il primo sospetto.
+
+Per un uso reale — dati persistenti, niente sospensione — serve un piano a pagamento con un disco
+allegato al servizio.
+
 ## Il punto da sapere
 
 La tavola TinkerCAD fornita come «fonte di verità per tutte le misure» **non lo è**: le sue 6 quote
