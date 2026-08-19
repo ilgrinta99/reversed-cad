@@ -1,0 +1,34 @@
+# Uso locale. Un solo servizio: la coda job è in-process, lo stato sta su SQLite.
+#
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# Il frontend in sviluppo gira a parte (`npm run dev` in webapp/frontend, porta
+# 5173) e chiama l'API su :8000; in produzione il build statico viene servito
+# dallo stesso backend.
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # I run sopravvivono al riavvio del container: la provenance delle quote è
+      # un registro, non una cache.
+      - teiser-data:/data
+    environment:
+      TEISER_RUNS_DIR: /data/runs
+      TEISER_DB_PATH: /data/teiser.db
+      # Nessun job può bloccare il worker: ogni invocazione FreeCAD ha una scadenza.
+      TEISER_JOB_TIMEOUT_S: "600"
+      TEISER_CORS_ORIGINS: "http://localhost:5173"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  teiser-data:

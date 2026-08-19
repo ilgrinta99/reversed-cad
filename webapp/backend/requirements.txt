@@ -1,0 +1,13 @@
+# Dipendenze del backend web. Numpy ed ezdxf arrivano dall'ambiente conda
+# insieme a FreeCAD (vedi docker/Dockerfile): non vanno duplicate qui, o si
+# rischiano due numpy diversi nello stesso interprete.
+#
+# Versioni verificate insieme in questa sessione (Python 3.11).
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.4
+
+# sviluppo e test
+pytest==9.1.1
+httpx==0.28.1
