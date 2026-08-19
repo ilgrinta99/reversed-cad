@@ -167,11 +167,42 @@ con un solo servizio + volume per `runs/`. L'immagine è grossa (FreeCAD + Qt);
 lo smoke test di §4.1 gira nel build come `RUN`, così un'immagine che non riesce a
 importare FreeCAD headless non viene mai prodotta.
 
-## 8. Rischi aperti
+## 8. Stato al termine della prima sessione
 
-* **Versione FreeCAD.** Locale è 1.1.3 (Homebrew cask); conda-forge va pinnata alla
-  minor corrispondente. API divergenti fra minor sono la causa più probabile di
-  «funziona sul Mac, non nel container».
+Fatto e verificato in esecuzione:
+
+* `core/freecad/runner.py` — unico punto di ingresso a FreeCAD headless, con tutte
+  le trappole incorporate (§4, più le tre nuove scoperte qui: argomenti, PYTHONPATH,
+  codice di uscita — vedi `docs/BUILD-LOG-webapp.md`).
+* `core/provenance/` — registro quote e decisioni, con il cancello sulla build.
+* `webapp/backend` — API, coda job su SQLite, log SSE. Provati su HTTP reale.
+* `webapp/frontend` — React + Vite + three.js: upload, schede delle decisioni,
+  tabella misurato → usato, log in streaming, anteprima 3D con mappa di
+  scostamento, anteprima SVG della tavola, download.
+* `docker/` — immagine con FreeCAD 1.1.3 da conda-forge; smoke test nel build.
+* 32 test verdi (30 + 2 skip senza FreeCAD).
+
+Da fare, in ordine:
+
+1. **Push del repo Teiser** (§0). Senza, il resto non può iniziare.
+2. Ripartizione dei `tools/*.py` fra `core/mesh/` e `parts/teiser/` (§3).
+3. `cad/draft2d.py` → `core/drafting/`, invariato: è verificato, non va riscritto.
+4. `cad/compare_model_mesh.py` → `core/compare/`, con l'aggiunta del valore per
+   vertice per la mappa di scostamento.
+5. Cablaggio di `parts/teiser/` nell'ordine documentato in `parts/teiser/plugin.py`.
+   Le D1–D8 e le A–G vanno **trascritte** da `docs/lost+found_design.md`, con la
+   decisione già presa dall'utente come scelta di partenza.
+6. Merge di `docs/BUILD-LOG-webapp.md` dentro `docs/BUILD-LOG.md`, e aggiornamento
+   di `STATE.md` e `docs/CONVENTIONS.md`.
+7. Build reale dell'immagine Docker (nel container di sviluppo non c'era un demone
+   Docker: FreeCAD è stato verificato installando conda-forge direttamente, che è
+   la stessa cosa che fa il Dockerfile, ma il `docker build` non è ancora stato
+   eseguito).
+
+## 9. Rischi aperti
+
+* ~~**Versione FreeCAD.**~~ Risolto: conda-forge serve esattamente `freecad 1.1.3`,
+  la stessa minor del Mac. Pinnata nel Dockerfile.
 * **Peso dell'immagine** (~1–2 GB): irrilevante in locale, da rivedere se si passa a
   un PaaS.
 * **Riconciliazione col codice reale**: tutti i `[DA VERIFICARE]` sopra.
