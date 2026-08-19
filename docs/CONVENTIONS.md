@@ -3,15 +3,15 @@
 ## Unità e sistema di riferimento
 - Tutte le lunghezze in **millimetri**, angoli in gradi.
 - Modello parametrico: origine al **centro della base della scatola**,
-  X = lunghezza, Y = larghezza, Z = verso l'alto. *(da confermare — design.md §5-G)*
+  X = lunghezza, Y = larghezza, Z = verso l'alto. *(da confermare — lost+found_design.md §5-G)*
 - La mesh OBJ conserva il suo sistema originale Tinkercad; le conversioni sono esplicite nel codice.
 
 ## Fonti di verità
-1. **La mesh `input/model.obj` è l'unica fonte reale di quote** (vedi design.md §2.1: la tavola
+1. **La mesh `input/model.obj` è l'unica fonte reale di quote** (vedi lost+found_design.md §2.1: la tavola
    TinkerCAD è generata dalla mesh stessa e riporta solo 6 quote di ingombro).
 2. La tavola TinkerCAD vale come conferma degli ingombri esterni.
 3. Nessuna quota viene inventata: ogni valore è misurato o esplicitamente approvato dal committente
-   e annotato in `docs/design.md`.
+   e annotato in `docs/lost+found_design.md`.
 
 ## Codice
 - Python 3.13, venv locale `.venv/`.

@@ -8,7 +8,7 @@ Tutte le quote provengono da cad/params.json, generato da tools/extract_params.p
 misurando input/model.obj. Nessun valore e' scritto a mano qui.
 
 Riferimento: origine al centro della base del corpo rettangolare della scatola,
-X = lunghezza, Y = larghezza, Z = verso l'alto (design.md 5-G).
+X = lunghezza, Y = larghezza, Z = verso l'alto (lost+found_design.md 5-G).
 """
 import json, math, os, sys
 

@@ -184,14 +184,70 @@ X lungo la lunghezza, Y lungo la larghezza, Z verso l'alto. Da confermare.
 
 ---
 
-## 6. Stato
+## 6. Decisioni del committente (2026-08-19)
+
+| | Decisione | Effetto |
+|---|---|---|
+| **A** | Raccordi **circolari** R1.5 (default proposto, non contestato) | unica deviazione residua nel confronto finale: max 0.62 mm sul raccordo di base |
+| **B** | **Mantenere l'asimmetria misurata** delle pareti | t_x = 1.3, t_y = 2.2 (arrotondati al decimo) |
+| **C** | Superellissoide con esponente fittato | → il fitting ha dato **p = 1.00, q = 2.00**, cioè un **paraboloide ellittico esatto**. Scarto max **0.117 mm** contro 1.610 mm di un ellissoide. Migliore della via di mezzo richiesta: resta parametrico *ed* è quasi esatto. |
+| **E** | **Asole fedeli alla mesh** | coperchio 1.948 × 3.291; fori colonnine 1.625 × 2.743 (e 1.625 × 3.158 sul blocco speciale) |
+| **F** | Coperchio **a filo esterno**, avvitato sulle colonnine | coperchio portato da 74.00 a **73.86** |
+| **G** | Origine al centro base scatola (default proposto) | X = lunghezza, Y = larghezza, Z verso l'alto |
+
+### 6.1 Conferma indipendente della decisione F
+
+Il coperchio nella mesh misura 74.00 con le asole a ±33.105; le colonnine della scatola hanno i
+fori a ±33.0425. Il fattore di scala 73.86/74.00 = **0.998108** porta le asole esattamente a
+**±33.0425**. Non è una coincidenza: **il coperchio era stato scalato per errore di 74/73.86 in
+Tinkercad**, e la decisione F lo riporta alla geometria voluta. È l'unico scostamento dalla tavola
+TinkerCAD (T4: −0.140 mm) ed è deliberato.
+
+---
+
+## 7. Correzioni emerse in FASE 3–5
+
+Il modello è stato costruito, confrontato con la mesh e corretto tre volte. Quello che il briefing
+di FASE 1 aveva sbagliato o non visto:
+
+| # | Nel briefing | In realtà |
+|---|---|---|
+| C1 | «4 colonnine d'angolo uguali» | **3 colonnine alte** (z 14.191→27) con smusso, **+ 1 blocco basso** (z 24.002→27) senza smusso, più profondo (10.090 invece di 8.762) e con asola più lunga (3.158 invece di 2.743). Il «4° piano di smusso» ricostruito per simmetria **non esiste**. |
+| C2 | «cupola non ellissoide, forse loft» | **paraboloide ellittico esatto**, equazione analitica (vedi §6-C) |
+| C3 | «2 aperture nella cupola, fit circolare scadente» | **2 fori a sezione ellittica 2.418 × 2.113**, con **asse inclinato di 21.84° nel piano XY**, simmetrici. Il fit falliva perché li assumevo paralleli a X. |
+| C4 | «tasche del coperchio rettangolari» | tasca grande rettangolare, ma **tasca annidata ed entrambe le tasche piccole sono ellissi** (i fit d'angolo R 2.400 e 1.429 sono il raggio medio dell'ellisse) |
+| C5 | «coperchio con fondo bombato R 81.44» | **fondo piano**: il fit cilindrico aveva rms 0.59, la sezione l'ha smentito |
+| C6 | non visto | **rilievo asolato 3.005 × 9.460** dentro la tasca sulla faccia X− |
+| C7 | «due rilievi separati nella tasca X−» | **uno solo**: i due contorni erano un artefatto del concatenamento delle sezioni |
+
+---
+
+## 8. Verifica finale modello ↔ mesh
+
+`tools/compare_model_mesh.py`, distanza esatta punto-superficie su 2500 vertici (scatola) e
+760 (coperchio, tutti):
+
+| | media | mediana | p90 | p99 | max |
+|---|---|---|---|---|---|
+| Scatola | 0.0252 | 0.0150 | 0.0558 | 0.1395 | 0.6213 |
+| Coperchio | 0.0467 | 0.0131 | 0.1269 | 0.6002 | 0.6213 |
+
+**Ogni scostamento oltre 0.5 mm è il solo raccordo di base**, cioè la deviazione voluta della
+decisione A (raccordo circolare R1.5 al posto di quello ellittico 1.484 × 1.801 della mesh).
+Nessun'altra feature supera 0.14 mm.
+
+> Se vuoi azzerare anche quello, serve un raccordo **ellittico**: `makeFillet` non lo supporta,
+> andrebbe costruito con uno sweep dedicato. Dimmelo e lo faccio.
+
+## 9. Stato
 
 - [x] Quote della tavola estratte (6)
 - [x] Mesh importata e misurata
 - [x] Discrepanze catalogate (D1–D8)
-- [ ] **Risposte alle domande A–G** ← *blocca la FASE 3*
-- [ ] Modello parametrico
-- [ ] Tavola TechDraw
+- [x] Decisioni A–G ricevute e applicate
+- [x] Modello parametrico (`cad/build_model.py` + `cad/params.json`) → STEP, STL
+- [x] Verifica contro la mesh (§8)
+- [x] Tavola tecnica quotata, 3 fogli A3 → PDF, DXF, SVG
 
 > Nessun valore di questo documento è stato inventato: ogni numero è misurato dalla mesh
 > (`tools/*.py`, riproducibile) o letto dalla tavola.

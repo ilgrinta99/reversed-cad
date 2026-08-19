@@ -1,6 +1,6 @@
 """Estrae TUTTI i parametri geometrici dalla mesh e li scrive in cad/params.json.
 
-Sistema di riferimento del modello (design.md 5-G):
+Sistema di riferimento del modello (lost+found_design.md 5-G):
 origine al centro della base del corpo rettangolare della scatola,
 X = lunghezza, Y = larghezza, Z = verso l'alto.
     x' = x + 6.77      y' = y + 27.90      z' = z
@@ -98,7 +98,7 @@ assert len(cham) == 3, 'attesi 3 piani di smusso, trovati %d' % len(cham)
 
 # ---- raccolta
 p = {
-  '_nota': 'Tutti i valori in mm, misurati da input/model.obj. Riferimento: design.md 5-G.',
+  '_nota': 'Tutti i valori in mm, misurati da input/model.obj. Riferimento: lost+found_design.md 5-G.',
   '_offset_mesh_modello': {'dx': DX, 'dy': DY, 'dz': 0.0},
   'scatola': {
     'corpo': {'L': 73.86, 'W': 46.0, 'H': 27.0,

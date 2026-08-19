@@ -1,7 +1,7 @@
 """Estrae quote geometriche dalla mesh OBJ di riferimento.
 
 NON produce quote 'di progetto': misura la tassellazione grezza. I valori
-vanno arrotondati/interpretati a mano in docs/design.md.
+vanno arrotondati/interpretati a mano in docs/lost+found_design.md.
 """
 import sys, math
 from collections import defaultdict

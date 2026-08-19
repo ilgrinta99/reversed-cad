@@ -1,25 +1,43 @@
 # STATE
 
-**Fase corrente:** FASE 1 completata → **in attesa di conferma committente**
+**Fase corrente:** FASI 1–5 completate. Modello e tavola consegnati.
 **Aggiornato:** 2026-08-19
 
 ## Fatto
-- [x] Scheletro progetto + git init + venv (numpy)
-- [x] Sorgenti copiati in `input/`
-- [x] Toolchain di analisi mesh (`tools/`, 4 script)
-- [x] Estrazione quote tavola TinkerCAD (6 quote di ingombro)
-- [x] Misura completa della mesh: gusci, cavità, cupola, fori, asole, colonnine, tasche
-- [x] `docs/design.md` — quote, quote mancanti, discrepanze D1–D8, ambiguità A–G
+- [x] FASE 1 — briefing: quote della tavola, misura della mesh, discrepanze D1–D8, ambiguità A–G
+- [x] FASE 2 — ambiente: FreeCAD 1.1.3 headless, venv Python 3.13 (numpy, ezdxf)
+- [x] Decisioni A–G ricevute dal committente e applicate
+- [x] FASE 3 — modello parametrico: `cad/params.json` (misurato) + `cad/build_model.py`
+- [x] FASE 5 — verifica contro la mesh, 3 giri di correzione (vedi BUILD-LOG)
+- [x] FASE 4 — tavola tecnica quotata, 3 fogli A3, PDF + DXF + SVG
 
-## In corso (nulla — FASE 2 sostanzialmente chiusa)
-- [x] FreeCAD 1.1.3 installato e verificato headless (Part, Import, importDXF, Mesh, TechDraw)
+## Uscite
+| file | contenuto |
+|---|---|
+| `output/model.step` | assieme scatola + coperchio |
+| `output/scatola.step`, `output/coperchio.step` | pezzi singoli |
+| `output/model.stl`, `scatola.stl`, `coperchio.stl` | mesh per stampa |
+| `output/taiser.FCStd` | documento FreeCAD |
+| `output/drawing.pdf` | tavola, 3 fogli A3 |
+| `output/drawing.dxf` | stessa tavola, 3 fogli affiancati, 8 layer |
+| `output/drawing_p1..3.svg` | fogli singoli |
 
-## Bloccato — serve risposta del committente
-Le 7 domande A–G in `docs/design.md` §5. Le più impattanti:
-- **B** — spessore pareti asimmetrico (1.293 X vs 2.188 Y): uniformare o mantenere?
-- **C** — la cupola non è un ellissoide: approssimare o fare loft su sezioni?
-- **F** — accoppiamento scatola/coperchio indefinito (il coperchio da 74.00 non combacia
-  né con la cavità da 71.27 né col corpo esterno da 73.86)
+## Verifica
+- Ingombri: scatola **80.000 × 46.000 × 27.000** (= tavola T1/T2/T3), coperchio
+  **73.860 × 46.000 × 2.500** (T4 scostato di −0.140 per decisione F, deliberato).
+- Scostamento modello ↔ mesh: scatola mediana 0.015 / p90 0.056 mm;
+  coperchio mediana 0.013 / p90 0.127 mm. Ogni residuo > 0.5 mm è il raccordo di base (decisione A).
 
-## Prossimo
-FASE 2 (setup FreeCAD) può partire in parallelo. FASE 3 (costruzione) è bloccata da A–G.
+## Aperto — decisione del committente
+1. **Raccordo di base ellittico.** È l'unico scostamento oltre 0.5 mm. Azzerarlo richiede uno sweep
+   dedicato (`makeFillet` non fa raccordi ellittici). Vale la pena?
+2. **Tolleranze.** Il modello è nominale: nessuna tolleranza, nessun datum, nessun accoppiamento
+   quotato fra coperchio e colonnine. La tavola TinkerCAD non ne conteneva.
+
+## Come rigenerare tutto
+```bash
+.venv/bin/python tools/extract_params.py
+/Applications/FreeCAD.app/Contents/MacOS/FreeCAD -c cad/build_model.py < /dev/null
+/Applications/FreeCAD.app/Contents/MacOS/FreeCAD -c cad/make_drawing.py < /dev/null
+/Applications/FreeCAD.app/Contents/MacOS/FreeCAD -c tools/compare_model_mesh.py < /dev/null
+```

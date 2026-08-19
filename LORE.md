@@ -25,6 +25,6 @@ mesh, non un documento di progetto indipendente. Documenta le tre dimensioni d'i
 tace su tutto il resto — incluse feature grosse e visibili dall'esterno come la cupola.
 
 Conseguenza operativa: **non esiste, in questo progetto, una fonte di quote nominali.** Ogni valore
-"da progetto" va deciso, non trovato. Per questo `docs/design.md` distingue sempre
+"da progetto" va deciso, non trovato. Per questo `docs/lost+found_design.md` distingue sempre
 *misurato* da *proposto*, e per questo le ambiguità A–G vanno chiuse dal committente prima di
 scrivere una riga di codice di modellazione.

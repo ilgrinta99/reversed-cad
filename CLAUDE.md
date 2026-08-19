@@ -4,17 +4,17 @@ Reverse engineering CAD: da mesh OBJ Tinkercad a modello parametrico STEP + tavo
 
 ## Leggi prima
 1. `STATE.md` — dove siamo, cosa blocca
-2. `docs/design.md` — tutte le quote, discrepanze D1–D8, ambiguità A–G
+2. `docs/lost+found_design.md` — tutte le quote, discrepanze D1–D8, ambiguità A–G
 3. `LORE.md` — perché la geometria è "sporca" e perché la tavola non è affidabile
 4. `docs/CONVENTIONS.md` — unità, datum, regole sul codice
 
 ## Regola non negoziabile
 **Nessuna quota inventata.** Ogni numero che entra nel modello è (a) misurato dalla mesh con uno
-script in `tools/`, oppure (b) approvato esplicitamente dal committente e registrato in `design.md`.
+script in `tools/`, oppure (b) approvato esplicitamente dal committente e registrato in `docs/lost+found_design.md`.
 Se manca un valore e non è approvato: **fermarsi e chiedere**, non stimare.
 
 ## Attenzione
-`docs/design.md` §2.1 — la tavola TinkerCAD **non è** una fonte indipendente di quote: è generata
+`docs/lost+found_design.md` §2.1 — la tavola TinkerCAD **non è** una fonte indipendente di quote: è generata
 dalla mesh e contiene solo 6 ingombri esterni. Non usarla come arbitro.
 
 ## Comandi
