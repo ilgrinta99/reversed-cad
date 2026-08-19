@@ -1,30 +1,8 @@
 # Teiser Web App — architettura
 
-Stato: **bozza operativa**, scritta prima che il codice Teiser fosse disponibile nel
-repo cloud (vedi §0). Le decisioni di stack sono confermate dall'utente; i confini
-architetturali qui descritti vanno verificati contro il codice reale al primo merge.
-
----
-
-## 0. Premessa sul contesto (leggere per prima)
-
-Il repo `ilgrinta99/reversed-cad` era vuoto quando questo documento è stato scritto:
-nessun commit, nessun ref sul remote. Il progetto Teiser (~1900 righe di Python,
-`STATE.md`, `LORE.md`, `docs/lost+found_design.md`, `docs/BUILD-LOG.md`,
-`docs/CONVENTIONS.md`, `CLAUDE.md`) vive solo su
-`/Users/macmini003/Documents/doc/develop/Teiser`.
-
-Conseguenza pratica: quanto segue è progettato **dai vincoli dichiarati dall'utente**,
-non dalla lettura del codice. Ogni punto marcato `[DA VERIFICARE]` è un'assunzione
-sull'interfaccia dei moduli esistenti, da confermare quando il codice arriva.
-
-Per allineare:
-
-```bash
-cd /Users/macmini003/Documents/doc/develop/Teiser
-git remote add origin https://github.com/ilgrinta99/reversed-cad
-git push -u origin master
-```
+Stato: **in piedi e verificato end-to-end** sul contenitore TAISER. La prima stesura
+è precedente all'arrivo del codice della pipeline nel repo; le assunzioni che
+conteneva sono state confrontate col codice reale e questo documento le riflette.
 
 ---
 
@@ -91,11 +69,25 @@ Regola di collocazione, per non dover discutere caso per caso: **se un modulo
 contiene un numero, un nome di feature o un'assunzione geometrica specifici del
 contenitore TAISER, sta in `parts/teiser/`.** Tutto il resto è `core/`.
 
-`[DA VERIFICARE]` La ripartizione dei `tools/*.py` esistenti fra `core/mesh` e
-`parts/teiser`: `extract_params.py`, `fit_superellipsoid.py` e le `probe_*.py`
-sono con ogni probabilità specifiche; `slice_mesh.py`, `analyze_mesh.py`,
-`render_views.py`, `segment_features.py` e `compare_model_mesh.py` dovrebbero
-essere generiche o rese tali con poche modifiche.
+### 3.1 Come è andata a finire, col codice vero in mano
+
+I `tools/*.py` non sono stati spostati né riscritti. Si è rivelata migliore una
+strada meno invasiva: restano dove sono, e `parts/teiser/plugin.py` li lancia
+puntandoli sulla cartella del run tramite `TAISER_MESH`, `TAISER_PARAMS`,
+`TAISER_OUT`, `TAISER_REPORT` (docs/CONVENTIONS.md). Da riga di comando si
+comportano esattamente come prima — verificato.
+
+La ripartizione «generico contro specifico» è quindi passata dai file alle
+interfacce:
+
+* in `core/` è finito ciò che serviva davvero a tutti: il runner FreeCAD, il
+  registro delle quote, il formato del confronto, il caricamento OBJ;
+* `parts/teiser/` porta lo `schema.py` (46 quote mappate sui percorsi di
+  params.json), le `decisions.py` (A–G e D1–D8 trascritte) e il cablaggio.
+
+`cad/draft2d.py` non è stato toccato: `make_drawing.py` lo usa com'è, e l'SVG che
+produce è quello che il browser mostra. Nessun FreeCAD nel percorso di anteprima,
+come previsto.
 
 ## 4. FreeCAD headless: le regole non negoziabili del runner
 
@@ -126,6 +118,10 @@ incorpora così che non possano essere dimenticate da chi chiama:
 Traduzione in prodotto — `core/provenance/`:
 
 * Ogni quota è un record: `{id, valore_misurato, valore_usato, origine, stato, nota}`.
+  Lo schema di `params.json` portava già questa distinzione per convenzione — le
+  chiavi con l'underscore iniziale (`_t_x_misurato`, `_L_mesh`, `_misurato_ellittico`)
+  sono la misura, il valore accanto è quello che entra nel modello. `schema.py` la
+  rende esplicita e verificabile invece che implicita.
 * `origine` ∈ `{misurato:<script>, approvato:<utente,timestamp>, derivato:<formula>}`.
 * `stato` ∈ `{concorde, divergente, mancante-non-approvato}`.
 * Una build con anche **una** quota `mancante-non-approvato` **non parte**: il job
@@ -133,10 +129,26 @@ Traduzione in prodotto — `core/provenance/`:
 * La tabella «misurato → usato» con le divergenze evidenziate è uno **step esplicito
   del flusso**, non un pannello avanzato da aprire.
 
-Le 8 discrepanze catalogate (D1–D8) e le 7 ambiguità (A–G) diventano dati in
-`parts/teiser/decisions.py`: testo della domanda, opzioni, decisione presa, quote
-impattate. La UI le presenta come form, e la decisione dell'utente viene registrata
-nella provenance. Quel passaggio è il cuore del prodotto.
+Le 8 discrepanze catalogate (D1–D8) e le 7 ambiguità (A–G) sono dati in
+`parts/teiser/decisions.py`: testo della domanda, evidenza, opzioni, decisione presa,
+quote impattate — trascritte da `docs/lost+found_design.md`, non riassunte. La UI le
+presenta come schede, e la decisione dell'utente viene registrata nella provenance.
+Quel passaggio è il cuore del prodotto.
+
+Le A–G risultano **già risolte**, con la risposta del committente del 2026-08-19 e la
+citazione del documento: non è un default nascosto, è un fatto registrato, e resta
+modificabile. Cambiarne una riscrive le quote che governa.
+
+Cablando lo schema è emersa una scelta che nessuna lettera copriva: gli
+arrotondamenti proposti in §3.1 del briefing (26.999 → 27.0, fondo 1.634 → 1.6,
+cavità, e il centro della cupola portato a 0 per simmetria). Compare come **S1**, con
+lo stesso standing della decisione A: «default proposto nel briefing, non contestato».
+Senza il registro sarebbe rimasta invisibile — è esattamente ciò per cui il registro
+esiste.
+
+Un'opzione può dire «usa la misura» senza portare numeri (`accept_measured`): il
+valore non è noto prima di misurare, e inventarlo nel catalogo delle decisioni
+sarebbe la stessa violazione che il progetto vieta.
 
 **Tranello del dominio** (`docs/lost+found_design.md` §2.1): la tavola tecnica
 TinkerCAD non è una fonte di verità, perché è generata dalla mesh stessa. Un
@@ -173,31 +185,35 @@ Fatto e verificato in esecuzione:
 
 * `core/freecad/runner.py` — unico punto di ingresso a FreeCAD headless, con tutte
   le trappole incorporate (§4, più le tre nuove scoperte qui: argomenti, PYTHONPATH,
-  codice di uscita — vedi `docs/BUILD-LOG-webapp.md`).
+  codice di uscita — vedi `docs/BUILD-LOG.md`, FASE 6).
 * `core/provenance/` — registro quote e decisioni, con il cancello sulla build.
 * `webapp/backend` — API, coda job su SQLite, log SSE. Provati su HTTP reale.
 * `webapp/frontend` — React + Vite + three.js: upload, schede delle decisioni,
   tabella misurato → usato, log in streaming, anteprima 3D con mappa di
   scostamento, anteprima SVG della tavola, download.
 * `docker/` — immagine con FreeCAD 1.1.3 da conda-forge; smoke test nel build.
-* 32 test verdi (30 + 2 skip senza FreeCAD).
+* `parts/teiser/` — cablaggio completo: 46 quote, 16 schede di decisione, i quattro
+  step che lanciano gli script esistenti.
+* 44 test verdi.
+
+Verificato girando davvero, su Linux con FreeCAD conda-forge:
+
+* `extract_params.py` riproduce il `cad/params.json` committato (scarto 0.0001 mm su
+  un punto, versione diversa di numpy);
+* il confronto modello ↔ mesh dà **le stesse identiche cifre** di §8 di
+  `lost+found_design.md`, macOS e Linux;
+* pipeline completa dal browser su una mesh caricata: analisi 10 s, build 6 s,
+  tavola 2 s, confronto 10 s.
 
 Da fare, in ordine:
 
-1. **Push del repo Teiser** (§0). Senza, il resto non può iniziare.
-2. Ripartizione dei `tools/*.py` fra `core/mesh/` e `parts/teiser/` (§3).
-3. `cad/draft2d.py` → `core/drafting/`, invariato: è verificato, non va riscritto.
-4. `cad/compare_model_mesh.py` → `core/compare/`, con l'aggiunta del valore per
-   vertice per la mappa di scostamento.
-5. Cablaggio di `parts/teiser/` nell'ordine documentato in `parts/teiser/plugin.py`.
-   Le D1–D8 e le A–G vanno **trascritte** da `docs/lost+found_design.md`, con la
-   decisione già presa dall'utente come scelta di partenza.
-6. Merge di `docs/BUILD-LOG-webapp.md` dentro `docs/BUILD-LOG.md`, e aggiornamento
-   di `STATE.md` e `docs/CONVENTIONS.md`.
-7. Build reale dell'immagine Docker (nel container di sviluppo non c'era un demone
-   Docker: FreeCAD è stato verificato installando conda-forge direttamente, che è
-   la stessa cosa che fa il Dockerfile, ma il `docker build` non è ancora stato
-   eseguito).
+1. `docker build` vero: FreeCAD conda-forge è stato verificato installandolo
+   direttamente — è quel che fa il Dockerfile — ma nel container di sviluppo non
+   c'era un demone Docker.
+2. Ripulitura dei run: 47 MB ciascuno, di cui 44 di STL a tassellazione fine.
+3. Impaginazione della tavola modificabile dal browser: oggi i tre fogli si
+   sfogliano, non si ricompongono.
+4. Un secondo pezzo della famiglia, per mettere alla prova il confine di §3.
 
 ## 9. Rischi aperti
 
@@ -205,4 +221,10 @@ Da fare, in ordine:
   la stessa minor del Mac. Pinnata nel Dockerfile.
 * **Peso dell'immagine** (~1–2 GB): irrilevante in locale, da rivedere se si passa a
   un PaaS.
-* **Riconciliazione col codice reale**: tutti i `[DA VERIFICARE]` sopra.
+* ~~**Riconciliazione col codice reale.**~~ Fatta: vedi §3.1 e §8.
+* **Il registro copre 46 quote su ~150 numeri di params.json.** Le altre restano
+  quelle che gli script misurano — la regola vale anche per loro — ma non hanno una
+  riga in tabella. È una scelta di leggibilità, non una scappatoia: in tabella
+  stanno le quote su cui misura e uso *possono* divergere. Se un domani il
+  costruttore introducesse un valore non misurato fuori da quell'elenco, il registro
+  non se ne accorgerebbe.

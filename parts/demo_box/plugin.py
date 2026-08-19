@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from core.compare import deviation
 from core.freecad.runner import run_script
 from core.mesh.obj import load_obj
 from core.plugin import RunContext, StepResult, registry
@@ -157,25 +158,17 @@ class DemoBoxPart:
         samples = _surface_samples(mesh)
         d = _distance_to_box_surface(samples, lo, hi)
 
-        stats = {
-            "median_mm": float(np.median(d)),
-            "mean_mm": float(np.mean(d)),
-            "p95_mm": float(np.percentile(d, 95)),
-            "max_mm": float(np.max(d)),
-        }
+        out = ctx.artifact("deviation.json")
+        punti = [[float(p[0]), float(p[1]), float(p[2]), float(dist)]
+                 for p, dist in zip(samples, d)]
+        stats = deviation.write(out, punti, {"BOX": {
+            "stats": deviation.stats_from(d),
+            "campionati": len(punti), "totali": len(punti), "worst": [],
+        }})
         for key, value in stats.items():
             ctx.log(f"{key}: {value:.4f}")
-
-        out = ctx.artifact("deviation.json")
-        out.write_text(json.dumps({
-            "stats": stats,
-            # Per la mappa di scostamento in three.js: un valore per vertice.
-            "per_vertex_mm": [
-                round(float(x), 5)
-                for x in _distance_to_box_surface(mesh.vertices, lo, hi)
-            ],
-        }))
-        return StepResult(artifacts={"deviation": out}, metrics=stats)
+        return StepResult(artifacts={"deviation": out},
+                          metrics={k: round(v, 4) for k, v in stats.items()})
 
 
 def _surface_samples(mesh) -> np.ndarray:

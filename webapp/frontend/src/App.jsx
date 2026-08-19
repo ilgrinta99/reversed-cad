@@ -38,6 +38,13 @@ export default function App() {
   useEffect(() => { if (run) refresh() }, [run?.id])
 
   const has = (name) => artifacts.some((a) => a.path === name)
+  // Per la vista 3D si preferisce l'STL grossolano: quello di consegna è a
+  // tassellazione fine e pesa decine di MB.
+  const modelPath = has('preview.stl') ? 'preview.stl' : has('model.stl') ? 'model.stl' : null
+  const sheets = artifacts
+    .map((a) => a.path)
+    .filter((p) => p.endsWith('.svg'))
+    .sort()
   const buildable = readiness?.buildable ?? false
   const blockingCount = readiness?.blocking?.length ?? 0
 
@@ -99,15 +106,15 @@ export default function App() {
               kind="compare"
               label="4b · Confronto modello ↔ mesh"
               hint="Distanza fra la superficie costruita e la mesh di partenza."
-              disabled={!has('model.stl')}
-              disabledReason={!has('model.stl') ? 'Serve prima la build.' : null}
+              disabled={!modelPath}
+              disabledReason={!modelPath ? 'Serve prima la build.' : null}
               onFinished={refresh}
             />
 
             <ModelViewer
               runId={run.id}
-              meshName={run.mesh_name}
-              hasModel={has('model.stl')}
+              modelPath={modelPath}
+              hasModel={!!modelPath}
               hasDeviation={has('deviation.json')}
             />
 
@@ -120,7 +127,7 @@ export default function App() {
               onFinished={refresh}
             />
 
-            <DrawingPreview runId={run.id} available={has('drawing.svg')} />
+            <DrawingPreview runId={run.id} sheets={sheets} />
 
             <Downloads runId={run.id} artifacts={artifacts} />
 

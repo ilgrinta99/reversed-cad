@@ -48,20 +48,19 @@ def test_health_elenca_i_pezzi(client):
     assert "demo_box" in body["parts"]
 
 
-def test_pezzo_non_collegato_e_dichiarato_tale(client, box_obj: Path):
+def test_pezzi_collegati(client, box_obj: Path):
     parts = {p["id"]: p for p in client.get("/api/parts").json()}
-    assert parts["teiser"]["wired"] is False
+    assert parts["teiser"]["wired"] is True
     assert parts["demo_box"]["wired"] is True
 
-    # E rifiuta l'upload con un messaggio comprensibile, invece di rompersi dopo.
+    # Un pezzo inesistente non crea un run a metà.
     with box_obj.open("rb") as fh:
         resp = client.post(
             "/api/runs",
-            data={"part_id": "teiser"},
+            data={"part_id": "inesistente"},
             files={"mesh": ("box.obj", fh, "text/plain")},
         )
-    assert resp.status_code == 503
-    assert "non è ancora collegato" in resp.json()["detail"]
+    assert resp.status_code == 404
 
 
 def test_solo_obj_accettato(client, box_obj: Path):
@@ -198,6 +197,10 @@ def test_confronto_restituisce_lo_scostamento(client, run):
     # L'altezza è stata approvata a 12.5 contro i 12.0 misurati: lo scostamento
     # massimo deve valere esattamente quella divergenza, non zero.
     assert job["result"]["metrics"]["max_mm"] == pytest.approx(0.5, abs=1e-6)
+
+    report = client.get(f"/api/runs/{run_id}/artifacts/deviation.json").json()
+    assert len(report["points"][0]) == 4, "ogni punto porta x, y, z e scostamento"
+    assert report["soglie_mm"] == {"piana": 0.10, "curva": 0.50}
 
 
 def test_log_del_job_in_streaming(client, run):

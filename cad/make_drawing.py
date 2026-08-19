@@ -22,8 +22,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, 'cad'))
 import draft2d as D
 
-P = json.load(open(os.path.join(ROOT, 'cad', 'params.json')))
-OUT = os.path.join(ROOT, 'output')
+# Percorsi configurabili: vedi cad/build_model.py e docs/CONVENTIONS.md.
+P = json.load(open(os.environ.get('TAISER_PARAMS', os.path.join(ROOT, 'cad', 'params.json'))))
+OUT = os.environ.get('TAISER_OUT', os.path.join(ROOT, 'output'))
 SCALA = 2.0
 A3 = (420.0, 297.0)
 
@@ -414,3 +415,7 @@ print('  %-4s %-22s %10s %10s %9s' % ('', 'quota', 'tavola', 'modello', 'delta')
 for k, lab, tav, mod in confronto_tavola():
     print('  %-4s %-22s %10.2f %10.3f %9.3f%s'
           % (k, lab, tav, mod, mod - tav, '   <- decisione F' if abs(mod - tav) > 0.005 else ''))
+
+# FreeCAD esce con codice 0 anche dopo un'eccezione: la sentinella dice al runner
+# della web app che lo script e' arrivato in fondo. Vedi core/freecad/runner.py.
+print('TEISER_OK')

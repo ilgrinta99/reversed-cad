@@ -17,8 +17,10 @@ import Part
 from FreeCAD import Vector, Rotation, Placement
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-P = json.load(open(os.path.join(ROOT, 'cad', 'params.json')))
-OUT = os.path.join(ROOT, 'output')
+# Percorsi configurabili: la web app li punta sulla cartella del run.
+# Senza variabili d'ambiente vale il comportamento di sempre.
+P = json.load(open(os.environ.get('TAISER_PARAMS', os.path.join(ROOT, 'cad', 'params.json'))))
+OUT = os.environ.get('TAISER_OUT', os.path.join(ROOT, 'output'))
 os.makedirs(OUT, exist_ok=True)
 
 # fattore di scala X applicato al coperchio per la decisione F (filo esterno):
@@ -333,4 +335,7 @@ Part.Compound([scatola, lid]).exportStl(os.path.join(OUT, 'model.stl'))
 scatola.exportStl(os.path.join(OUT, 'scatola.stl'))
 coperchio.exportStl(os.path.join(OUT, 'coperchio.stl'))
 doc.saveAs(os.path.join(OUT, 'taiser.FCStd'))
-print('\nesportati in output/: model.step scatola.step coperchio.step model.stl taiser.FCStd')
+print('\nesportati in %s: model.step scatola.step coperchio.step model.stl taiser.FCStd' % OUT)
+# FreeCAD esce con codice 0 anche dopo un'eccezione: la sentinella dice al runner
+# della web app che lo script e' arrivato in fondo. Vedi core/freecad/runner.py.
+print('TEISER_OK')

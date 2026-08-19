@@ -30,6 +30,24 @@ FreeCAD headless (una volta installato):
 /Applications/FreeCAD.app/Contents/MacOS/FreeCAD -c cad/build_model.py
 ```
 
+## Web app
+Runner web della stessa pipeline: si carica un OBJ e si segue tutto dal browser.
+Non riscrive gli script, li lancia puntandoli su una cartella di run (vedi
+`docs/CONVENTIONS.md`, «Percorsi degli script»).
+
+```bash
+uvicorn webapp.backend.app.main:app --reload --port 8000
+cd webapp/frontend && npm run dev
+python -m pytest tests/ -q
+```
+
+- `core/` = generico, `parts/teiser/` = specifico del pezzo. Il confine è la regola
+  in `docs/CONVENTIONS.md`: se c'è dentro un numero del TAISER, sta in `parts/`.
+- La regola non negoziabile qui sopra è codice in `core/provenance/`, non una
+  convenzione: una build con quote non misurate né approvate **non parte**.
+- Architettura e stato: `docs/webapp-architecture.md`.
+
 ## Ambiente
 - Python 3.13 in `.venv/` (numpy). FreeCAD via Homebrew cask, usato headless con `FreeCADCmd`.
+- Nel container Linux, FreeCAD 1.1.3 da conda-forge: stessa minor, stessi risultati.
 - `input/` è sola lettura. Gli output rigenerabili stanno in `output/`.

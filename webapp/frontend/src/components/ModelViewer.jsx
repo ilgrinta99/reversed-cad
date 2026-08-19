@@ -7,7 +7,7 @@ import { api } from '../api.js'
 // Anteprima del solido costruito, con sopra la mesh di partenza colorata per
 // scostamento. I due oggetti restano distinti: il modello è ciò che abbiamo
 // costruito, la nuvola è ciò che la mesh dice davvero.
-export default function ModelViewer({ runId, meshName, hasModel, hasDeviation }) {
+export default function ModelViewer({ runId, modelPath, hasModel, hasDeviation }) {
   const mount = useRef(null)
   const [error, setError] = useState(null)
   const [stats, setStats] = useState(null)
@@ -38,7 +38,7 @@ export default function ModelViewer({ runId, meshName, hasModel, hasDeviation })
     const cleanupFns = []
 
     new STLLoader().load(
-      api.artifactUrl(runId, 'model.stl'),
+      api.artifactUrl(runId, modelPath),
       (geometry) => {
         geometry.computeVertexNormals()
         geometry.computeBoundingSphere()
@@ -70,7 +70,7 @@ export default function ModelViewer({ runId, meshName, hasModel, hasDeviation })
     )
 
     if (hasDeviation) {
-      loadDeviationCloud(runId, meshName)
+      loadDeviationCloud(runId)
         .then(({ points, stats: s }) => {
           scene.add(points)
           deviationRef.current = points
@@ -96,7 +96,7 @@ export default function ModelViewer({ runId, meshName, hasModel, hasDeviation })
       el.removeChild(renderer.domElement)
       deviationRef.current = null
     }
-  }, [runId, meshName, hasModel, hasDeviation])
+  }, [runId, modelPath, hasModel, hasDeviation])
 
   useEffect(() => {
     if (deviationRef.current) deviationRef.current.visible = showDeviation
@@ -115,8 +115,9 @@ export default function ModelViewer({ runId, meshName, hasModel, hasDeviation })
     <div className="panel">
       <h2>4 · Anteprima 3D e scostamento</h2>
       <p className="hint">
-        In blu il solido costruito; i punti sono i vertici della mesh, colorati per
-        distanza dalla superficie del modello — verde vicino, rosso lontano.
+        In blu il solido costruito; i punti sono i vertici della mesh campionati dal
+        confronto, colorati per distanza dalla superficie del modello — verde vicino,
+        rosso lontano.
       </p>
       <div className="row" style={{ marginBottom: 10 }}>
         <label>
@@ -126,8 +127,8 @@ export default function ModelViewer({ runId, meshName, hasModel, hasDeviation })
         </label>
         {stats && (
           <span className="provenance">
-            mediana {stats.median_mm.toFixed(3)} mm · p95 {stats.p95_mm.toFixed(3)} mm ·
-            max {stats.max_mm.toFixed(3)} mm
+            mediana {stats.mediana_mm.toFixed(3)} mm · p90 {stats.p90_mm.toFixed(3)} mm ·
+            p99 {stats.p99_mm.toFixed(3)} mm · max {stats.max_mm.toFixed(3)} mm
           </span>
         )}
       </div>
@@ -137,43 +138,36 @@ export default function ModelViewer({ runId, meshName, hasModel, hasDeviation })
   )
 }
 
-// I vertici si rileggono dall'OBJ nello stesso ordine in cui li ha letti il
-// backend: è quell'ordine che indicizza `per_vertex_mm`. Un loader generico
-// riordinerebbe la geometria e la corrispondenza salterebbe.
-async function loadDeviationCloud(runId, meshName) {
-  const [objText, deviation] = await Promise.all([
-    api.artifactText(runId, `input/${meshName}`),
-    api.artifactJson(runId, 'deviation.json'),
-  ])
+// Ogni punto del confronto porta con sé le proprie coordinate, nel riferimento
+// dell'assieme: nessuna dipendenza dall'ordine dei vertici del file di partenza.
+async function loadDeviationCloud(runId) {
+  const deviation = await api.artifactJson(runId, 'deviation.json')
+  const raw = deviation.points ?? []
 
-  const coords = []
-  for (const line of objText.split('\n')) {
-    if (line.startsWith('v ')) {
-      const [, x, y, z] = line.trim().split(/\s+/)
-      coords.push(Number(x), Number(y), Number(z))
-    }
-  }
+  // La scala del colore si ferma alla soglia sulle superfici curve: oltre quella
+  // il rosso è pieno, e le differenze che contano restano leggibili sotto.
+  const limit = deviation.soglie_mm?.curva ?? Math.max(...raw.map((p) => p[3]), 1e-9)
 
-  const values = deviation.per_vertex_mm ?? []
-  const max = Math.max(...values, 1e-9)
-  const colors = new Float32Array(values.length * 3)
+  const coords = new Float32Array(raw.length * 3)
+  const colors = new Float32Array(raw.length * 3)
   const color = new THREE.Color()
-  values.forEach((v, i) => {
-    color.setHSL(0.33 * (1 - Math.min(v / max, 1)), 0.85, 0.55) // verde → rosso
+  raw.forEach(([x, y, z, d], i) => {
+    coords[i * 3] = x
+    coords[i * 3 + 1] = y
+    coords[i * 3 + 2] = z
+    color.setHSL(0.33 * (1 - Math.min(d / limit, 1)), 0.85, 0.55) // verde → rosso
     colors[i * 3] = color.r
     colors[i * 3 + 1] = color.g
     colors[i * 3 + 2] = color.b
   })
 
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3))
-  if (values.length * 3 === colors.length && colors.length === coords.length) {
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-  }
+  geometry.setAttribute('position', new THREE.BufferAttribute(coords, 3))
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
 
   const points = new THREE.Points(
     geometry,
-    new THREE.PointsMaterial({ size: 0.6, vertexColors: colors.length === coords.length }),
+    new THREE.PointsMaterial({ size: 0.5, vertexColors: true }),
   )
-  return { points, stats: deviation.stats }
+  return { points, stats: deviation.stats, parts: deviation.parts }
 }

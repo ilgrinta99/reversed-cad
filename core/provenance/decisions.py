@@ -35,8 +35,18 @@ class Option:
     label: str
     description: str = ""
     sets: dict[str, float] = field(default_factory=dict)
+    #: Quote da portare al loro valore misurato. Serve per le opzioni del tipo
+    #: «tieni quel che dice la mesh», il cui numero non è noto prima di misurare
+    #: e che quindi non può stare in `sets` senza essere inventato.
+    accept_measured: tuple[str, ...] = ()
     #: Conseguenza sul pezzo reale, in parole. È ciò che permette di decidere.
     consequence: str = ""
+
+    @property
+    def dimensions(self) -> list[str]:
+        out = list(self.sets)
+        out += [d for d in self.accept_measured if d not in out]
+        return out
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,6 +54,7 @@ class Option:
             "label": self.label,
             "description": self.description,
             "sets": dict(self.sets),
+            "accept_measured": list(self.accept_measured),
             "consequence": self.consequence,
         }
 
@@ -75,7 +86,7 @@ class Decision:
     def affected_dimensions(self) -> list[str]:
         seen: list[str] = []
         for opt in self.options:
-            for dim_id in opt.sets:
+            for dim_id in opt.dimensions:
                 if dim_id not in seen:
                     seen.append(dim_id)
         return seen
@@ -108,17 +119,18 @@ class Decision:
             raise ValueError(f"{self.id} non è ancora stata risolta")
         assert self.chosen is not None and self.resolved_by is not None
         opt = self.option(self.chosen)
+        motivo = f"{self.id} → {opt.label}: {self.rationale}"
         for dim_id, value in opt.sets.items():
             dim = registry.get(dim_id)
-            registry.update(
-                dim.approve(
-                    value,
-                    by=self.resolved_by,
-                    rationale=f"{self.id} → {opt.label}: {self.rationale}",
-                    decision_id=self.id,
-                    at=self.resolved_at,
-                )
-            )
+            registry.update(dim.approve(value, by=self.resolved_by, rationale=motivo,
+                                        decision_id=self.id, at=self.resolved_at))
+        for dim_id in opt.accept_measured:
+            dim = registry.get(dim_id)
+            if dim.measured is None:
+                # Nessuna misura ancora: la decisione resta registrata e verrà
+                # riapplicata dopo l'analisi. Meglio di un numero inventato ora.
+                continue
+            registry.update(dim.accept_measurement())
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -24,3 +24,41 @@
 - Confronto modello ↔ mesh: scostamento accettabile **≤ 0.10 mm** su feature piane,
   **≤ 0.50 mm** su superfici curve ricostruite in modo approssimato (cupola).
 - Ogni scostamento oltre soglia va registrato in `docs/BUILD-LOG.md`.
+
+## Percorsi degli script (web app e riga di comando)
+
+Gli script di `tools/` e `cad/` leggono quattro variabili d'ambiente. Senza di esse
+il comportamento è quello di sempre, relativo alla radice del repo: nessun comando
+documentato cambia.
+
+| Variabile | Cosa punta | Default |
+|---|---|---|
+| `TAISER_MESH` | mesh OBJ da misurare | `input/model.obj` |
+| `TAISER_PARAMS` | file delle quote | `cad/params.json` |
+| `TAISER_OUT` | cartella degli artefatti | `output/` |
+| `TAISER_REPORT` | JSON del confronto (solo `compare_model_mesh.py`) | nessuno |
+
+Restano le due preesistenti: `TAISER_N` (vertici campionati nel confronto) e
+`TAISER_PAGES` (PDF per foglio separati).
+
+Ogni script FreeCAD stampa `TEISER_OK` come ultima riga. Non è decorazione: FreeCAD
+esce con codice 0 anche dopo un'eccezione non catturata, quindi il runner della web
+app usa quella riga per distinguere un build riuscito da uno morto a metà.
+
+## Confine fra generico e specifico del pezzo
+
+Vale per il codice della web app, e decide dove va scritta una funzione nuova:
+
+- **se contiene un numero, un nome di feature o un'assunzione geometrica del
+  contenitore TAISER, sta in `parts/teiser/`**;
+- tutto il resto è `core/`: caricamento mesh, runner FreeCAD, registro delle quote,
+  formato del confronto, motore di disegno.
+
+Il backend web non importa mai `parts.teiser`: passa dal registry di `core.plugin`.
+
+## La regola non negoziabile, nel codice
+
+`core/provenance/` non è documentazione: `Registry.assert_buildable()` solleva, e
+la build non parte, se anche una sola quota non è né misurata né approvata.
+Un'approvazione senza motivazione viene rifiutata. Le divergenze approvate restano
+elencabili: approvare non è nascondere.

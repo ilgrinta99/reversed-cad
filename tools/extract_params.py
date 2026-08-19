@@ -5,12 +5,21 @@ origine al centro della base del corpo rettangolare della scatola,
 X = lunghezza, Y = larghezza, Z = verso l'alto.
     x' = x + 6.77      y' = y + 27.90      z' = z
 """
-import json, math
+import json, math, os
 import numpy as np
-exec(open('tools/segment_features.py').read().split("V, objs = load")[0])
+
+# Percorsi configurabili per far girare lo script su un run della web app senza
+# toccarne la logica. Senza variabili d'ambiente il comportamento e' quello di
+# sempre: input/model.obj -> cad/params.json. Vedi docs/CONVENTIONS.md.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOOLS = os.path.join(ROOT, 'tools')
+MESH = os.environ.get('TAISER_MESH', os.path.join(ROOT, 'input', 'model.obj'))
+PARAMS = os.environ.get('TAISER_PARAMS', os.path.join(ROOT, 'cad', 'params.json'))
+
+exec(open(os.path.join(TOOLS, 'segment_features.py')).read().split("V, objs = load")[0])
 
 DX, DY = 6.77, 27.90
-V, objs = load('input/model.obj')
+V, objs = load(MESH)
 P0 = V[np.unique(objs['obj_0'])]
 P1 = V[np.unique(objs['obj_1'])]
 def to_model(p): return np.array([p[0]+DX, p[1]+DY, p[2]])
@@ -34,7 +43,7 @@ for comp, N, A in patches(V, objs['obj_0'], w):
 cham.sort(key=lambda c: (-c['n'][0], -c['n'][1]))
 
 # ---- assi dei due fori inclinati nella cupola (via contorni di sezione)
-src = open('tools/slice_mesh.py').read().split("if __name__")[0]
+src = open(os.path.join(TOOLS, 'slice_mesh.py')).read().split("if __name__")[0]
 exec(src[src.index("def section"):])
 import sys; sys.setrecursionlimit(20000)
 
@@ -171,8 +180,9 @@ p = {
     '_nota_riferimento': 'coperchio ricentrato: cx = x_mesh + 9.0, cy = y_mesh - 56.833',
   },
 }
-json.dump(p, open('cad/params.json', 'w'), indent=2, ensure_ascii=False)
+os.makedirs(os.path.dirname(PARAMS) or '.', exist_ok=True)
+json.dump(p, open(PARAMS, 'w'), indent=2, ensure_ascii=False)
 print(json.dumps(p['scatola']['fori_cupola'], indent=2, ensure_ascii=False))
 print(f"\npiani smusso colonnine: {len(cham)}")
 for c in cham: print("  n=", c["n"], " d=", c["d"], "", c.get("_nota", ""))
-print("\nscritto cad/params.json")
+print("\nscritto %s" % os.path.relpath(PARAMS, ROOT))

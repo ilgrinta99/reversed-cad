@@ -48,6 +48,13 @@ def submit_analyze(run_id: str) -> Job:
         ctx = _context(run, log)
         log(f"mesh: {run.mesh_path.name}")
         result = plugin.measure(ctx, run.registry)
+
+        # Le decisioni già risolte si riapplicano ora: prima della misura, le
+        # opzioni del tipo «usa la misura» non avevano ancora un numero da usare.
+        risolte = [d for d in run.decisions if d.resolved]
+        if risolte:
+            run.decisions.apply_all(run.registry)
+            log(f"{len(risolte)} decisioni già registrate riapplicate alle quote")
         save_run(run)
 
         blocking = run.registry.blocking()
