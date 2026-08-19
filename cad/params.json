@@ -1,0 +1,332 @@
+{
+  "_nota": "Tutti i valori in mm, misurati da input/model.obj. Riferimento: design.md 5-G.",
+  "_offset_mesh_modello": {
+    "dx": 6.77,
+    "dy": 27.9,
+    "dz": 0.0
+  },
+  "scatola": {
+    "corpo": {
+      "L": 73.86,
+      "W": 46.0,
+      "H": 27.0,
+      "_H_misurata": 26.999,
+      "_L_note": "senza cupola; con cupola 80.00 = tavola T1"
+    },
+    "pareti": {
+      "t_x": 1.3,
+      "t_y": 2.2,
+      "_t_x_misurato": 1.293,
+      "_t_y_misurato": 2.188
+    },
+    "fondo": {
+      "t": 1.6,
+      "_misurato": 1.634
+    },
+    "raccordo_base": {
+      "R": 1.5,
+      "_misurato_ellittico": [
+        1.514,
+        1.422
+      ],
+      "_nota": "reso circolare per decisione A"
+    },
+    "cavita": {
+      "L": 71.26,
+      "W": 41.6,
+      "z_fondo": 1.6,
+      "z_top": 27.0,
+      "_misurata": [
+        71.274,
+        41.624,
+        25.365
+      ]
+    },
+    "cupola": {
+      "tipo": "paraboloide ellittico",
+      "eq": "(x - x0)/a = 1 - ((y-cy)/b)^2 - ((z-cz)/c)^2",
+      "x0": 36.93,
+      "a": 6.14,
+      "b": 17.381,
+      "c": 8.188,
+      "cy": 0.0,
+      "cz": 10.7275,
+      "_cy_misurato": -0.0175,
+      "_fit": {
+        "p": 1.0,
+        "q": 2.0,
+        "scarto_max_mm": 0.117,
+        "_confronto_ellissoide_max_mm": 1.61
+      },
+      "piena": true
+    },
+    "foro_parete_dx": {
+      "D": 3.002,
+      "asse": "X",
+      "y": -18.1,
+      "z": 4.25,
+      "_R_fit": 1.501,
+      "_rms_fit": 0.0016
+    },
+    "fori_cupola": {
+      "A": {
+        "punto": [
+          35.637,
+          9.1954,
+          11.1795
+        ],
+        "dir": [
+          1.0,
+          -0.40084,
+          -0.0
+        ],
+        "angolo_XY_deg": 21.843,
+        "sez_perp_X_YxZ": [
+          2.4179,
+          2.113
+        ],
+        "_n_sezioni": 7,
+        "_residuo_max_mm": 0.0
+      },
+      "B": {
+        "punto": [
+          35.637,
+          -9.5894,
+          11.179
+        ],
+        "dir": [
+          1.0,
+          0.40083,
+          0.0
+        ],
+        "angolo_XY_deg": 21.842,
+        "sez_perp_X_YxZ": [
+          2.4182,
+          2.114
+        ],
+        "_n_sezioni": 6,
+        "_residuo_max_mm": 0.0
+      },
+      "_forma": "ellisse in sezione perpendicolare a X"
+    },
+    "asola_frontale": {
+      "L_x": 6.467,
+      "H_z": 4.005,
+      "cx": 1.8465,
+      "cz": 23.7495,
+      "parete": "Y-"
+    },
+    "tasca_sx": {
+      "prof": 0.69,
+      "W_y": 19.79,
+      "H_z": 11.005,
+      "cy": -10.882,
+      "cz": 18.4995,
+      "faccia": "X-",
+      "rilievo": {
+        "forma": "asola",
+        "W_z": 3.005,
+        "L_y": 9.4601,
+        "cy": -9.6616,
+        "cz": 22.2239,
+        "_R_testate": [
+          1.4888,
+          1.5141
+        ],
+        "_nota": "a filo della faccia esterna, quindi alto quanto la tasca (0.690)"
+      }
+    },
+    "colonnine": {
+      "_nota": "NON sono 4 uguali: 3 colonnine alte con smusso + 1 blocco basso diverso (vedi BUILD-LOG 2026-08-19 FASE 5)",
+      "standard": {
+        "n": 3,
+        "segni_xy": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            -1
+          ],
+          [
+            -1,
+            1
+          ]
+        ],
+        "L_x": 5.183,
+        "W_y": 8.762,
+        "z_base": 14.191,
+        "z_top": 27.0,
+        "x_int": 30.451,
+        "x_est": 35.634,
+        "y_int": 12.048,
+        "y_est": 20.81,
+        "smusso_z_top": 23.171,
+        "piani_smusso": [
+          {
+            "n": [
+              0.6105,
+              -0.3612,
+              -0.7048
+            ],
+            "d": -39.2741,
+            "area": 59.495,
+            "bbox": [
+              -35.634,
+              12.048,
+              14.191,
+              -30.451,
+              20.81,
+              23.171
+            ]
+          },
+          {
+            "n": [
+              -0.6105,
+              0.3612,
+              -0.7048
+            ],
+            "d": -39.2741,
+            "area": 59.496,
+            "bbox": [
+              30.451,
+              -20.81,
+              14.191,
+              35.634,
+              -12.048,
+              23.171
+            ]
+          },
+          {
+            "n": [
+              -0.6105,
+              -0.3612,
+              -0.7048
+            ],
+            "d": -39.2741,
+            "area": 59.496,
+            "bbox": [
+              30.451,
+              12.048,
+              14.191,
+              35.634,
+              20.81,
+              23.171
+            ]
+          }
+        ],
+        "foro": {
+          "forma": "asola",
+          "W": 1.625,
+          "L": 2.743,
+          "z_base": 17.687,
+          "cx": 33.0425,
+          "cy": 16.4285
+        }
+      },
+      "speciale": {
+        "n": 1,
+        "segni_xy": [
+          [
+            -1,
+            -1
+          ]
+        ],
+        "L_x": 5.183,
+        "W_y": 10.09,
+        "z_base": 24.002,
+        "z_top": 27.0,
+        "x_int": 30.451,
+        "x_est": 35.634,
+        "y_int": 10.72,
+        "y_est": 20.81,
+        "smusso": null,
+        "foro": {
+          "forma": "asola",
+          "W": 1.625,
+          "L": 3.158,
+          "z_base": 24.002,
+          "cx": 33.0425,
+          "cy": 15.765
+        }
+      }
+    },
+    "nervature": {
+      "n": 2,
+      "parete": "Y-",
+      "t_x": 1.846,
+      "x_centri": [
+        8.771,
+        -5.078
+      ],
+      "y_da": -20.812,
+      "y_a": -14.961,
+      "z_min": 23.202,
+      "z_max": 24.89,
+      "_R_arco_fit": 2.986
+    }
+  },
+  "coperchio": {
+    "piastra": {
+      "L": 73.86,
+      "W": 46.0,
+      "S": 2.5,
+      "_L_mesh": 74.0,
+      "_L_tavola": 74.0,
+      "_nota": "portato a 73.86 per decisione F (filo esterno corpo scatola)"
+    },
+    "raccordo_base": {
+      "R": 1.5,
+      "_misurato_ellittico": [
+        1.484,
+        1.801
+      ],
+      "z_fascia_netta": 1.801
+    },
+    "asole": {
+      "n": 4,
+      "W": 1.952,
+      "L": 3.291,
+      "R_testa": 0.976,
+      "_R_fit": [
+        0.929,
+        0.998
+      ],
+      "cx": 33.105,
+      "cy": 16.4285,
+      "passanti": true
+    },
+    "tasca_grande": {
+      "forma": "rettangolo",
+      "L_x": 12.03,
+      "W_y": 12.865,
+      "prof": 0.502,
+      "cx": -21.275,
+      "cy": -10.6345
+    },
+    "tasca_annidata": {
+      "forma": "ellisse",
+      "_R_angoli_fit": 2.4,
+      "L_x": 4.63,
+      "W_y": 4.951,
+      "prof": 1.502,
+      "cx": -21.275,
+      "cy": -10.6345
+    },
+    "tasche_piccole": {
+      "n": 2,
+      "forma": "ellisse",
+      "_R_angoli_fit": 1.429,
+      "L_x": 2.78,
+      "W_y": 2.973,
+      "prof": 1.502,
+      "cx": [
+        23.125,
+        27.75
+      ],
+      "cy": -3.7095
+    },
+    "_nota_riferimento": "coperchio ricentrato: cx = x_mesh + 9.0, cy = y_mesh - 56.833"
+  }
+}
