@@ -267,6 +267,34 @@ class Registry:
         for d in dims:
             self.add(d)
 
+    def adopt(self, fresh: "Registry") -> list[str]:
+        """Recepisce una nuova misurazione senza perdere le approvazioni.
+
+        Serve quando le quote non sono note prima di misurare: l'analisi le scopre
+        e le riporta qui. Rimisurare non deve cancellare quello che l'utente ha
+        già deciso — sarebbe il modo più rapido per far sparire una scelta
+        registrata — quindi di ogni quota già presente si aggiorna la misura e si
+        conserva l'approvazione. Le quote che la nuova lettura non trova più se ne
+        vanno: erano di un'altra mesh, e tenerle vorrebbe dire portarsi dietro
+        numeri che nessuno misura più.
+
+        Restituisce gli id delle quote scomparse.
+        """
+        removed = [d.id for d in self if d.id not in fresh]
+        merged: dict[str, Dimension] = {}
+        for incoming in fresh:
+            existing = self.dimensions.get(incoming.id)
+            merged[incoming.id] = incoming if existing is None else replace(
+                incoming,
+                approval=existing.approval,
+                # Con un'approvazione in corso il valore usato resta quello
+                # approvato; senza, torna a essere la misura appena presa.
+                used=existing.used if existing.approval else incoming.used,
+            )
+        # L'ordine è quello della lettura fresca: è l'ordine in cui la UI mostra.
+        self.dimensions = merged
+        return removed
+
     # -- il cancello -------------------------------------------------------
 
     def blocking(self) -> list[Dimension]:

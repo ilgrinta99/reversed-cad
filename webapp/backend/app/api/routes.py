@@ -22,6 +22,12 @@ router = APIRouter(prefix="/api")
 MESH_SUFFIXES = {".obj"}
 COMPANION_SUFFIXES = {".mtl", ".png", ".jpg", ".jpeg", ".pdf", ".svg"}
 
+#: Pipeline usata quando la richiesta non ne indica una — cioè sempre, dalla UI.
+#: Non è una scelta di comodo: è il percorso normale del prodotto, si carica una
+#: mesh e la si misura. Gli id dei pezzi cablati restano accettati per chi li
+#: chiama dall'API.
+DEFAULT_PART = "auto"
+
 
 @router.get("/health")
 def health() -> dict[str, Any]:
@@ -60,7 +66,8 @@ def list_parts() -> list[dict[str, Any]]:
 
 @router.post("/runs")
 async def create_run(
-    part_id: str = Form(...),
+    # Nessun pezzo da indicare: quale sia, lo dirà la misura della mesh.
+    part_id: str = Form(DEFAULT_PART),
     title: str = Form(""),
     mesh: UploadFile = File(...),
     references: list[UploadFile] = File(default=[]),

@@ -22,11 +22,10 @@ const json = (body) => ({
 
 export const api = {
   health: () => req('/health'),
-  parts: () => req('/parts'),
 
-  createRun: (partId, mesh, references, title) => {
+  // Nessun pezzo da indicare: il backend usa la pipeline che misura la mesh.
+  createRun: (mesh, references, title) => {
     const form = new FormData()
-    form.append('part_id', partId)
     form.append('title', title ?? '')
     form.append('mesh', mesh)
     for (const ref of references) form.append('references', ref)

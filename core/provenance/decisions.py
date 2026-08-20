@@ -186,6 +186,34 @@ class DecisionSet:
     def pending(self) -> list[Decision]:
         return [d for d in self if not d.resolved]
 
+    def adopt(self, fresh: "DecisionSet") -> list[str]:
+        """Recepisce le domande di una nuova analisi tenendo le risposte già date.
+
+        Una domanda che la nuova lettura ripropone identica non va richiesta:
+        se l'utente ha già risposto, la risposta resta, con il suo autore e il suo
+        timestamp. Una domanda che non si ripresenta sparisce — non c'è più nulla
+        di ambiguo da decidere lì. Restituisce gli id caduti.
+        """
+        dropped = [d.id for d in self if d.id not in fresh.decisions]
+        merged: dict[str, Decision] = {}
+        for incoming in fresh:
+            previous = self.decisions.get(incoming.id)
+            if previous is not None and previous.resolved:
+                try:
+                    incoming.option(previous.chosen or "")
+                except KeyError:
+                    # Le opzioni sono cambiate con i numeri della nuova misura:
+                    # la vecchia risposta non è più applicabile, e va ridata.
+                    merged[incoming.id] = incoming
+                    continue
+                incoming = replace(incoming, chosen=previous.chosen,
+                                   resolved_by=previous.resolved_by,
+                                   resolved_at=previous.resolved_at,
+                                   rationale=previous.rationale)
+            merged[incoming.id] = incoming
+        self.decisions = merged
+        return dropped
+
     def apply_all(self, registry: "Registry") -> None:  # noqa: F821
         for d in self:
             if d.resolved:

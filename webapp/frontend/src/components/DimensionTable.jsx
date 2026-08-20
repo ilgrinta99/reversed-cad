@@ -55,7 +55,7 @@ export default function DimensionTable({ runId, provenance, onChanged }) {
 
   return (
     <div className="panel">
-      <h2>3 · Quote: misurato → usato</h2>
+      <h2>4 · Quote: misurato → usato</h2>
       <p className="hint">
         Ogni numero che entra nel modello è misurato dalla mesh oppure approvato da te,
         con la motivazione registrata. {blocking > 0

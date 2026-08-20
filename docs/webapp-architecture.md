@@ -13,10 +13,15 @@ esegue analisi → parametri → modello → tavola, mostra il passaggio decisio
 quote, restituisce STEP/STL/PDF/DXF/SVG e il report di verifica, e consente di
 modificare i parametri e rilanciare.
 
-**Non** è, oggi, uno strumento generico di reverse engineering con riconoscimento
-automatico delle feature su una mesh qualsiasi. Le feature del contenitore TAISER
-(cupola paraboloidica, 4 colonnine di cui una diversa, asole, tasche ellittiche)
-restano codificate — ma isolate dietro il confine di §3.
+Il percorso normale non chiede quale pezzo si stia caricando: **la mesh è l'unica
+specifica**. `parts/auto/` la misura così com'è, ne ricava le quote che esistono
+davvero in quel file e le domande che quella geometria solleva. Due mesh diverse
+danno due tabelle diverse e due elenchi di ambiguità diversi — vedi §3.2.
+
+Le pipeline scritte su misura per un pezzo noto restano: `parts/teiser/` esegue
+gli script già verificati del contenitore TAISER (cupola paraboloidica, 4
+colonnine di cui una diversa, asole, tasche ellittiche) e si raggiunge indicandone
+l'id all'API. Non è più il percorso predefinito.
 
 ## 2. Stack (confermato)
 
@@ -39,14 +44,18 @@ seguito non tocca gli endpoint.
 
 ```
 core/                     GENERICO — nessuna conoscenza del pezzo
-  mesh/                   caricamento OBJ, bbox, clustering piani, sezioni,
-                          segmentazione patch, render ortografici
+  mesh/                   caricamento OBJ, segmentazione in corpi e patch,
+                          riconoscimento delle primitive, sezioni piane,
+                          analisi ad hoc e rilevamento delle ambiguità
   drafting/               draft2d.py — primitive 2D + backend SVG/PDF/DXF
   compare/                distanza punto-superficie modello ↔ mesh
   provenance/             registro delle quote: misurato / usato / origine / approvazione
   freecad/                runner headless (§4)
 
 parts/
+  auto/                   NESSUN PEZZO — misura la mesh e la ricostruisce
+                          con un repertorio dichiarato: prisma, raccordo,
+                          cavità, fori
   teiser/                 SPECIFICO DEL PEZZO
     schema.py             schema di params.json (pydantic) — quote e loro provenienza
     extract.py            orchestrazione dei tools/ di misura per questo pezzo
@@ -89,6 +98,56 @@ interfacce:
 produce è quello che il browser mostra. Nessun FreeCAD nel percorso di anteprima,
 come previsto.
 
+### 3.2 Analisi ad hoc: le quote e le domande vengono dalla mesh
+
+Il difetto della prima versione non era architetturale, era di prodotto: si
+sceglieva il pezzo da un menu *prima* di caricare il file, e da quella scelta
+discendevano l'elenco delle quote e il catalogo delle ambiguità. Su una mesh
+qualsiasi quel catalogo era semplicemente sbagliato — erano le ambiguità di un
+altro pezzo.
+
+Oggi il caricamento accetta un OBJ e nient'altro, e la lettura avviene in tre
+passaggi, tutti in `core/mesh/`:
+
+| Modulo | Cosa risponde |
+|---|---|
+| `patches.py` | di quanti corpi è fatta la mesh, e di quali superfici ogni corpo (piano, cilindro, sfera, libera) |
+| `analysis.py` | quali quote quelle superfici *dimostrano*: ingombri, facce esterne, spessori di parete, cavità, arrotondamenti degli spigoli, fori e asole, simmetria, datum |
+| `ambiguity.py` | dove la misura non è conclusiva, e con quali opzioni numeriche |
+| `sections.py` | sezioni piane, aree dei contorni, fit di cerchi — il supporto alle prime due |
+
+Due criteri reggono tutto il resto:
+
+* **una quota misurata entra nel modello con il valore misurato.** Usare la
+  misura non è mai un'invenzione, ed è il motivo per cui una mesh senza ambiguità
+  arriva alla build senza chiedere niente all'utente;
+* **una quota che non esiste come misura scalare resta vuota, e blocca.** Il caso
+  tipico è il raccordo non circolare: lo spigolo è arretrato di due quantità
+  diverse sui due lati, quindi *un* raggio non è misurabile. Va scelto, e la
+  scelta è un'approvazione registrata.
+
+Le famiglie di ambiguità che l'analizzatore riconosce — raccordo non circolare,
+pareti asimmetriche, superfici non riconducibili a una primitiva, archi parziali,
+asole, corpi multipli, datum arbitrario, arrotondamento congruente — sono le
+stesse che l'analista umano aveva catalogato a mano come A–G in
+`docs/lost+found_design.md`. La differenza è che ora le trova un algoritmo, su
+qualunque mesh, e le trova con i numeri di *quella* mesh.
+
+**Verifica sul pezzo vero.** Su `input/model.obj`, senza una riga di codice che
+sappia cosa sia un TAISER, l'analisi ritrova gli spessori di parete 1.293 e 2.188
+mm (§5-B del briefing), il fondo a 1.634 mm (§3.1), gli ingombri 80 × 46 × 26.999
+e 74 × 46 × 2.5, le quattro colonnine come corpi separati di cui una diversa, e
+solleva sei ambiguità fra cui la cupola come superficie non ricostruibile.
+`tests/test_mesh_analysis.py` lo verifica.
+
+**Il ricostruttore dichiara i propri limiti.** `parts/auto/build_script.py` sa
+fare prisma, raccordo verticale, cavità e fori cilindrici. Quello che non sa fare
+non lo approssima: l'analisi lo elenca fra le feature non ricostruibili, la UI lo
+mostra come decisione («costruisci senza, lo scostamento resterà misurato» /
+«fermati»), e il confronto modello ↔ mesh misura quanto è costata la
+semplificazione. Una superficie libera approssimata in silenzio con una primitiva
+sarebbe una quota inventata: è la stessa regola, applicata alle forme.
+
 ## 4. FreeCAD headless: le regole non negoziabili del runner
 
 Raccolte dal `BUILD-LOG` dell'utente. Il modulo `core/freecad/runner.py` le
@@ -128,6 +187,9 @@ Traduzione in prodotto — `core/provenance/`:
   fallisce con l'elenco delle quote da risolvere. Non esiste un default silenzioso.
 * La tabella «misurato → usato» con le divergenze evidenziate è uno **step esplicito
   del flusso**, non un pannello avanzato da aprire.
+* Le schede di decisione compaiono **dopo** l'analisi, perché prima non esistono:
+  non sono un catalogo scritto in anticipo, sono il risultato della misura. Se la
+  mesh non solleva ambiguità, il pannello lo dice e il flusso prosegue.
 
 Le 8 discrepanze catalogate (D1–D8) e le 7 ambiguità (A–G) sono dati in
 `parts/teiser/decisions.py`: testo della domanda, evidenza, opzioni, decisione presa,
@@ -135,9 +197,11 @@ quote impattate — trascritte da `docs/lost+found_design.md`, non riassunte. La
 presenta come schede, e la decisione dell'utente viene registrata nella provenance.
 Quel passaggio è il cuore del prodotto.
 
-Le A–G risultano **già risolte**, con la risposta del committente del 2026-08-19 e la
-citazione del documento: non è un default nascosto, è un fatto registrato, e resta
-modificabile. Cambiarne una riscrive le quote che governa.
+Le A–G risultano **già risolte** *nella pipeline `parts/teiser/`*, con la risposta
+del committente del 2026-08-19 e la citazione del documento: non è un default
+nascosto, è un fatto registrato, e resta modificabile. Cambiarne una riscrive le
+quote che governa. Sul percorso `auto` non vale nulla di tutto questo: lì le
+domande nascono dalla mesh caricata e nessuna arriva già risposta.
 
 Cablando lo schema è emersa una scelta che nessuna lettera copriva: gli
 arrotondamenti proposti in §3.1 del briefing (26.999 → 27.0, fondo 1.634 → 1.6,
@@ -159,9 +223,10 @@ sorgente di quote, ed è etichettato come tale nell'interfaccia.
 
 | # | Step | Job | Durata attesa |
 |---|---|---|---|
-| 1 | Upload `model.obj` (+ `.mtl`, + tavola di riferimento opzionale) | — | — |
-| 2 | Analisi → feature, render ortografici, sezioni | `analyze` | 10–30 s |
-| 3 | Tabella misurato → usato + risoluzione ambiguità | sincrono | — |
+| 1 | Upload `model.obj` (+ `.mtl`, + tavola di riferimento opzionale). Nessun pezzo da scegliere | — | — |
+| 2 | Analisi → corpi, patch, quote e ambiguità di *questa* mesh | `analyze` | < 1 s – 30 s |
+| 3 | Ambiguità rilevate: una scheda per ciascuna, o «nessuna ambiguità» | sincrono | — |
+| 3b | Tabella misurato → usato | sincrono | — |
 | 4 | Build → STEP/STL/FCStd + mappa di scostamento | `build`, `compare` | ~6 s + confronto |
 | 5 | Tavola → SVG in browser, impaginazione modificabile | `draw` | secondi |
 | 6 | Download STEP/STL/PDF/DXF/SVG + report di verifica | — | — |
@@ -236,7 +301,20 @@ Da fare, in ordine:
 * **Peso dell'immagine** (~1–2 GB): irrilevante in locale, da rivedere se si passa a
   un PaaS.
 * ~~**Riconciliazione col codice reale.**~~ Fatta: vedi §3.1 e §8.
-* **Il registro copre 46 quote su ~150 numeri di params.json.** Le altre restano
+* **Il ricostruttore automatico è elementare.** Prisma, raccordo verticale,
+  cavità, fori: su una mesh con superfici libere il solido è una semplificazione.
+  Il rischio non è che la semplificazione esista — è dichiarata e misurata dal
+  confronto — ma che qualcuno la scambi per il modello finito. La UI la mostra
+  come decisione, non come nota a piè di pagina.
+* **Il fit delle primitive ha tolleranze di lettura, e sono numeri.** `patches.py`
+  rifiuta un cilindro se l'errore supera il 2 % del raggio o 0.10 mm assoluti (la
+  tolleranza del progetto sulle feature piane); `analysis.py` chiede a una faccia
+  esterna almeno il 5 % della sezione del corpo. Sono soglie di lettura, non quote
+  del pezzo, e stanno in cima ai rispettivi moduli con la ragione accanto. Una
+  mesh molto più grossolana o molto più fine di quelle provate può richiedere di
+  rivederle: sarebbe un cambio di taratura, e va fatto lì.
+* **Il registro copre 46 quote su ~150 numeri di params.json** *nella pipeline
+  `parts/teiser/`*. Le altre restano
   quelle che gli script misurano — la regola vale anche per loro — ma non hanno una
   riga in tabella. È una scelta di leggibilità, non una scappatoia: in tabella
   stanno le quote su cui misura e uso *possono* divergere. Se un domani il

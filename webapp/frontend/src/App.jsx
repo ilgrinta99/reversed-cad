@@ -13,6 +13,7 @@ export default function App() {
   const [run, setRun] = useState(null)
   const [readiness, setReadiness] = useState(null)
   const [artifacts, setArtifacts] = useState([])
+  const [analysis, setAnalysis] = useState(null)
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -47,11 +48,14 @@ export default function App() {
     .sort()
   const buildable = readiness?.buildable ?? false
   const blockingCount = readiness?.blocking?.length ?? 0
+  // Prima dell'analisi il run non ha quote: non è un errore, è che la mesh non è
+  // ancora stata misurata. Finché è così, non c'è niente da decidere né da quotare.
+  const analysed = (run?.provenance?.dimensions?.length ?? 0) > 0
 
   return (
     <>
       <header className="app">
-        <h1>Teiser · reverse engineering CAD</h1>
+        <h1>Reverse engineering CAD · dalla mesh al modello parametrico</h1>
         <span className="sub">
           {health
             ? health.freecad
@@ -78,25 +82,40 @@ export default function App() {
             <JobLog
               runId={run.id}
               kind="analyze"
-              label="1 · Analisi della mesh"
-              hint="Misura la mesh e riempie il registro delle quote. Ogni valore porta il nome dello script che l'ha prodotto."
-              onFinished={refresh}
+              label="2 · Analisi della mesh"
+              hint="Misura questa mesh: corpi, ingombri, pareti, raccordi, fori. Da qui
+                    escono le quote del registro e le ambiguità da risolvere — nessuna
+                    delle due è decisa prima di aver letto il file."
+              onFinished={(job) => {
+                setAnalysis(job?.result ?? null)
+                refresh()
+              }}
             />
 
-            <DecisionCards runId={run.id} decisions={run.decisions} onChanged={refresh} />
+            <DecisionCards
+              runId={run.id}
+              decisions={run.decisions}
+              analysed={analysed}
+              notes={analysis?.notes}
+              onChanged={refresh}
+            />
 
-            <DimensionTable runId={run.id} provenance={run.provenance} onChanged={refresh} />
+            {analysed && (
+              <DimensionTable runId={run.id} provenance={run.provenance} onChanged={refresh} />
+            )}
 
             <JobLog
               runId={run.id}
               kind="build"
-              label="4 · Build del modello"
-              hint="Costruisce i solidi e li esporta in STEP e STL."
-              disabled={!buildable}
+              label="5 · Build del modello"
+              hint="Costruisce i solidi dalle quote approvate e li esporta in STEP e STL."
+              disabled={!analysed || !buildable}
               disabledReason={
-                blockingCount > 0
-                  ? `${blockingCount} quote non sono né misurate né approvate: la build non parte.`
-                  : null
+                !analysed
+                  ? 'Serve prima l’analisi della mesh.'
+                  : blockingCount > 0
+                    ? `${blockingCount} quote non sono né misurate né approvate: la build non parte.`
+                    : null
               }
               onFinished={refresh}
             />
@@ -104,8 +123,9 @@ export default function App() {
             <JobLog
               runId={run.id}
               kind="compare"
-              label="4b · Confronto modello ↔ mesh"
-              hint="Distanza fra la superficie costruita e la mesh di partenza."
+              label="5b · Confronto modello ↔ mesh"
+              hint="Distanza fra la superficie costruita e la mesh di partenza: è qui che
+                    si vede quanto costa ogni semplificazione dichiarata."
               disabled={!modelPath}
               disabledReason={!modelPath ? 'Serve prima la build.' : null}
               onFinished={refresh}
@@ -121,9 +141,10 @@ export default function App() {
             <JobLog
               runId={run.id}
               kind="draw"
-              label="5 · Tavola"
+              label="6 · Tavola"
               hint="Genera la tavola. L'anteprima SVG non richiede FreeCAD."
-              disabled={!buildable}
+              disabled={!analysed || !buildable}
+              disabledReason={!analysed ? 'Serve prima l’analisi della mesh.' : null}
               onFinished={refresh}
             />
 
@@ -141,7 +162,7 @@ export default function App() {
                 <button onClick={() => api.forkRun(run.id).then(setRun, (e) => setError(e.message))}>
                   Crea variante
                 </button>
-                <button onClick={() => setRun(null)}>Nuovo run</button>
+                <button onClick={() => { setRun(null); setAnalysis(null) }}>Nuovo run</button>
               </div>
             </div>
           </>

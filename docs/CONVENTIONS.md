@@ -20,6 +20,21 @@
 - Ogni parametro dimensionale vive in un unico dict `PARAMS` in testa allo script, mai inline.
 - Commenti e docstring in italiano.
 
+## Tolleranze di lettura della mesh
+
+Sono soglie con cui si *legge* un triangolato, non quote di un pezzo, e stanno in
+cima ai moduli di `core/mesh/` con la ragione accanto. Cambiarle è una taratura, e
+va fatta lì e non nel codice che le usa.
+
+| Soglia | Valore | Dove |
+|---|---|---|
+| saldatura dei vertici | 1e-4 mm | `patches.WELD_TOL` |
+| rottura di una patch fra normali adiacenti | 12° | `patches.BREAK_ANGLE_DEG` |
+| dispersione sotto cui la patch è un piano | 1° | `patches.PLANE_SPREAD_DEG` |
+| errore di fit di una primitiva | 2 % del raggio **e** 0.10 mm | `patches.FIT_RMS_RATIO`, `FIT_RMS_ABS` |
+| area minima di una faccia esterna | 5 % della sezione del corpo | `analysis.MIN_FACE_FRACTION` |
+| cilindro completo (foro) contro arco parziale | ingombro trasversale ≥ 1.6 R | `analysis.BORE_WIDTH_RATIO` |
+
 ## Tolleranze di confronto
 - Confronto modello ↔ mesh: scostamento accettabile **≤ 0.10 mm** su feature piane,
   **≤ 0.50 mm** su superfici curve ricostruite in modo approssimato (cupola).

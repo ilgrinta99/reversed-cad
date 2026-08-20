@@ -31,9 +31,12 @@ FreeCAD headless (una volta installato):
 ```
 
 ## Web app
-Runner web della stessa pipeline: si carica un OBJ e si segue tutto dal browser.
-Non riscrive gli script, li lancia puntandoli su una cartella di run (vedi
-`docs/CONVENTIONS.md`, «Percorsi degli script»).
+Si carica un OBJ e si segue tutto dal browser. **Non si sceglie il pezzo:** la mesh
+caricata è l'unica specifica. `core/mesh/` la misura (corpi, patch, quote) e ne
+ricava le ambiguità di *quel* file; le schede di decisione compaiono dopo
+l'analisi, non prima. La pipeline cablata del TAISER resta in `parts/teiser/` e si
+raggiunge indicandone l'id all'API: lancia gli script esistenti puntandoli su una
+cartella di run (vedi `docs/CONVENTIONS.md`, «Percorsi degli script»).
 
 ```bash
 uvicorn webapp.backend.app.main:app --reload --port 8000
@@ -43,6 +46,10 @@ python -m pytest tests/ -q
 
 - `core/` = generico, `parts/teiser/` = specifico del pezzo. Il confine è la regola
   in `docs/CONVENTIONS.md`: se c'è dentro un numero del TAISER, sta in `parts/`.
+- `parts/auto/` è il percorso predefinito e non contiene numeri del pezzo: misura
+  la mesh e la ricostruisce con un repertorio dichiarato (prisma, raccordo,
+  cavità, fori). Quello che non sa fare lo dichiara come feature non
+  ricostruibile: non lo approssima.
 - La regola non negoziabile qui sopra è codice in `core/provenance/`, non una
   convenzione: una build con quote non misurate né approvate **non parte**.
 - Architettura e stato: `docs/webapp-architecture.md`.

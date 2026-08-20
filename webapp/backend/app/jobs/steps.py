@@ -25,6 +25,7 @@ def _context(run: Run, log: Logger) -> RunContext:
         mesh_path=run.mesh_path,
         run_dir=run.dir,
         references=run.references,
+        decisions=run.decisions,
         log=log,
         timeout_s=float(os.environ.get("TEISER_JOB_TIMEOUT_S", "600")),
     )
@@ -48,6 +49,19 @@ def submit_analyze(run_id: str) -> Job:
         ctx = _context(run, log)
         log(f"mesh: {run.mesh_path.name}")
         result = plugin.measure(ctx, run.registry)
+
+        # Un'analisi ad hoc non riempie un registro dichiarato prima: lo scopre.
+        # Recepirlo qui, e non dentro il plugin, è ciò che permette a una
+        # rianalisi di non cancellare le decisioni già prese.
+        if result.dimensions is not None:
+            perse = run.registry.adopt(result.dimensions)
+            log(f"{len(run.registry)} quote dalla mesh"
+                + (f", {len(perse)} non più presenti" if perse else ""))
+        if result.decisions is not None:
+            cadute = run.decisions.adopt(result.decisions)
+            aperte = len(run.decisions.pending())
+            log(f"{len(run.decisions)} ambiguità rilevate, {aperte} da risolvere"
+                + (f", {len(cadute)} non più aperte" if cadute else ""))
 
         # Le decisioni già risolte si riapplicano ora: prima della misura, le
         # opzioni del tipo «usa la misura» non avevano ancora un numero da usare.

@@ -147,7 +147,12 @@ def _decisions_from_json(data: dict[str, Any]) -> DecisionSet:
             reference=d.get("reference", ""),
             options=tuple(
                 Option(id=o["id"], label=o["label"], description=o.get("description", ""),
-                       sets=dict(o.get("sets", {})), consequence=o.get("consequence", ""))
+                       sets=dict(o.get("sets", {})),
+                       # Senza questo, un'opzione «usa la misura» tornerebbe dal
+                       # database senza le quote che governa, e riaprire il run
+                       # ne perderebbe l'effetto.
+                       accept_measured=tuple(o.get("accept_measured", ())),
+                       consequence=o.get("consequence", ""))
                 for o in d.get("options", [])
             ),
             chosen=d.get("chosen"),

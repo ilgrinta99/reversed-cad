@@ -1,22 +1,47 @@
 import { useState } from 'react'
 import { api } from '../api.js'
 
-// Le discrepanze (D1–D8) e le ambiguità (A–G) come schede da risolvere una per una.
-// Non sono un pannello avanzato: sono il cuore del flusso.
-export default function DecisionCards({ runId, decisions, onChanged }) {
+// Le ambiguità che *questa* mesh solleva, una scheda per ciascuna. Compaiono dopo
+// l'analisi, perché prima non esistono: non sono un catalogo scritto in anticipo,
+// sono il risultato della misura. Se la mesh non ne solleva nessuna, il pannello
+// lo dice e il flusso prosegue senza chiedere niente.
+export default function DecisionCards({ runId, decisions, analysed, notes, onChanged }) {
+  if (!analysed) return null
+
   const items = decisions?.decisions ?? []
-  if (items.length === 0) return null
+  const pending = items.filter((d) => !d.resolved).length
+
   return (
     <div className="panel">
-      <h2>2 · Discrepanze e ambiguità</h2>
-      <p className="hint">
-        Dove la mesh non è conclusiva, o dove modello e riferimento non concordano,
-        decidi tu. Ogni scelta viene registrata nel registro delle quote con la sua
-        motivazione.
-      </p>
-      {items.map((d) => (
-        <DecisionCard key={d.id} runId={runId} decision={d} onChanged={onChanged} />
-      ))}
+      <h2>3 · Ambiguità rilevate</h2>
+      {items.length === 0 ? (
+        <>
+          <p className="hint">
+            Nessuna ambiguità: ogni quota della tabella è misurata dalla mesh e
+            nessuna lettura è in conflitto con un'altra. Il modello parametrico si
+            costruisce con le misure così come sono.
+          </p>
+          <span className="badge ok">nessuna ambiguità</span>
+        </>
+      ) : (
+        <>
+          <p className="hint">
+            L'analisi ha trovato {items.length}{' '}
+            {items.length === 1 ? 'punto' : 'punti'} in cui la mesh non è
+            conclusiva: {pending} da risolvere. Ogni scheda porta l'evidenza
+            misurata e le opzioni con i numeri già calcolati. Ogni scelta viene
+            registrata nel registro delle quote con la sua motivazione.
+          </p>
+          {items.map((d) => (
+            <DecisionCard key={d.id} runId={runId} decision={d} onChanged={onChanged} />
+          ))}
+        </>
+      )}
+      {notes?.length > 0 && (
+        <ul className="hint" style={{ marginTop: 12, paddingLeft: 18 }}>
+          {notes.map((n) => <li key={n}>{n}</li>)}
+        </ul>
+      )}
     </div>
   )
 }
@@ -61,7 +86,13 @@ function DecisionCard({ runId, decision, onChanged }) {
             {o.consequence && <div className="consequence">{o.consequence}</div>}
             {Object.keys(o.sets ?? {}).length > 0 && (
               <div className="consequence">
-                imposta {Object.entries(o.sets).map(([k, v]) => `${k} = ${v}`).join(', ')}
+                imposta {summarise(o.sets)}
+              </div>
+            )}
+            {(o.accept_measured ?? []).length > 0 && (
+              <div className="consequence">
+                porta {o.accept_measured.length}{' '}
+                {o.accept_measured.length === 1 ? 'quota' : 'quote'} al valore misurato
               </div>
             )}
           </span>
@@ -85,4 +116,12 @@ function DecisionCard({ runId, decision, onChanged }) {
       {error && <p className="error">{error}</p>}
     </form>
   )
+}
+
+// Un'opzione di arrotondamento tocca decine di quote: elencarle tutte renderebbe
+// la scheda illeggibile proprio dove serve decidere.
+function summarise(sets) {
+  const entries = Object.entries(sets)
+  const shown = entries.slice(0, 4).map(([k, v]) => `${k} = ${v}`).join(', ')
+  return entries.length > 4 ? `${shown} e altre ${entries.length - 4}` : shown
 }
