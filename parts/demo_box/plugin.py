@@ -19,7 +19,7 @@ import numpy as np
 
 from core.compare import deviation
 from core.freecad.runner import run_script
-from core.mesh.obj import load_obj
+from core.mesh.loader import load_mesh
 from core.plugin import RunContext, StepResult, registry
 from core.provenance import Decision, DecisionKind, DecisionSet, Dimension, Option, Registry
 
@@ -75,7 +75,7 @@ class DemoBoxPart:
     # -- step --------------------------------------------------------------
 
     def measure(self, ctx: RunContext, registry_: Registry) -> StepResult:
-        mesh = load_obj(ctx.mesh_path)
+        mesh = load_mesh(ctx.mesh_path)
         ctx.log(f"mesh caricata: {len(mesh)} vertici, {len(mesh.faces)} triangoli")
 
         lo, hi = mesh.bbox
@@ -145,7 +145,7 @@ class DemoBoxPart:
         pezzo vero questo metodo delegherà a `compare_model_mesh.py`, che è già
         verificato: la firma è pensata per accoglierlo senza cambiamenti.
         """
-        mesh = load_obj(ctx.mesh_path)
+        mesh = load_mesh(ctx.mesh_path)
         params = json.loads((ctx.run_dir / "params.json").read_text())
         # Il solido si confronta com'è stato costruito, con i valori *usati*: se una
         # quota è stata approvata diversa dalla misura, lo scostamento deve vedersi.

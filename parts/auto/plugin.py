@@ -26,7 +26,7 @@ from core.drafting import tavola
 from core.freecad.runner import run_script
 from core.mesh.ambiguity import read as read_ambiguities
 from core.mesh.analysis import analyze
-from core.mesh.obj import load_obj
+from core.mesh.loader import load_mesh
 from core.mesh.sections import cross_section, polygon_area
 from core.plugin import RunContext, StepResult, registry
 from core.provenance import DecisionSet, Registry
@@ -188,7 +188,7 @@ class AutoPart:
         suo valore: è il modo in cui una semplificazione dichiarata resta
         verificabile invece che nascosta.
         """
-        mesh = load_obj(ctx.mesh_path)
+        mesh = load_mesh(ctx.mesh_path)
         recipe = json.loads((ctx.run_dir / RECIPE_FILE).read_text())
         samples = _surface_samples(mesh)
         distances = _distance_to_recipe(samples, recipe)
@@ -358,7 +358,7 @@ def _contorni_mesh(mesh_path: Path, recipe: dict) -> dict[str, dict[str, list]]:
     stile e un layer suoi.
     """
     try:
-        mesh = load_obj(mesh_path)
+        mesh = load_mesh(mesh_path)
     except (OSError, ValueError):
         return {}
     fuori: dict[str, dict[str, list]] = {}

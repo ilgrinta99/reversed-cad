@@ -275,3 +275,67 @@ e si impagina. Non è un'astrazione gratuita: la scala di un foglio dipende da
 quanto misura la proiezione, e quanto misura la proiezione lo sa solo l'HLR.
 L'effetto collaterale utile è che il compositore non importa FreeCAD e si prova
 con un interprete qualsiasi.
+
+
+## FASE 9 — quattro formati, e le tre cose che li rendono diversi
+
+### Lo STL non porta topologia, e la segmentazione lo scopre nel modo peggiore
+
+Ogni triangolo di uno STL dichiara i suoi tre vertici per conto proprio: due
+triangoli adiacenti scrivono due volte gli stessi due punti, e nel file non
+esiste niente che dica che sono lo stesso punto. Caricato così, `segment()` —
+che costruisce l'adiacenza per spigolo condiviso — trova un corpo per triangolo.
+Sulla mesh del progetto: 11 184 corpi invece di 6.
+
+I vertici si saldano quindi al caricamento, sulla stessa griglia da `1e-4` mm con
+cui `core/mesh/patches.py` ricostruisce l'adiacenza. Due tolleranze diverse
+vorrebbero dire due parti del programma che non sono d'accordo su cosa sia un
+vertice.
+
+La saldatura **non sposta** i vertici: la griglia serve solo a raggruppare, e di
+ogni gruppo si tiene la coordinata del primo vertice incontrato. Saldare sui
+valori arrotondati sarebbe misurare una mesh diversa da quella caricata — sulla
+mesh del progetto, fino a 0.05 µm di scarto per vertice, che è poco ma è inventato.
+
+Effetto collaterale della saldatura: due triangoli della mesh di riferimento
+collassano su un segmento e spariscono (11 184 → 11 182). È corretto — erano più
+sottili della tolleranza — ma i dati per-faccia (il gruppo di appartenenza) vanno
+filtrati con la stessa maschera, o si disallineano.
+
+### Il VRML è una scena, e i Transform non sono decorativi
+
+La geometria di un `.wrl` sta dentro un albero di nodi, e un `Transform` trasla,
+ruota e scala tutto quello che ha sotto. Un lettore che li ignora produce una
+mesh plausibile a vedersi — i pezzi ci sono tutti — e sbagliata da misurare: tutti
+nell'origine, e alla scala in cui l'esportatore li ha scritti, che spesso è
+unitaria. Il test scrive apposta un cubo unitario con `scale 40 25 12`: senza
+Transform misurerebbe 1 × 1 × 1.
+
+Quello che il lettore non sa fare lo dice: una scena di sole primitive (`Box`,
+`Sphere`, `Cylinder`, `Extrusion`) solleva un errore che le nomina e spiega come
+riesportare. Approssimarle con l'ingombro sarebbe inventare geometria — la stessa
+regola che vale per le quote.
+
+### `solid` non distingue uno STL ASCII da uno binario
+
+L'intestazione di uno STL binario è un commento di 80 byte, e moltissimi
+esportatori ci scrivono `solid <nome>`. Chi riconosce il formato dalla prima
+parola legge il binario come testo e trova zero triangoli. Il criterio vero è la
+dimensione: uno STL binario è lungo esattamente 84 + 50 × numero di triangoli
+dichiarato nell'intestazione. Il test scrive apposta un binario che comincia con
+`solid`.
+
+### STL e PLY binario sono in precisione singola
+
+Lo stesso pezzo esportato in OBJ e in STL non dà le stesse quote: divergono nella
+quinta cifra decimale. Misurato sulla mesh del progetto — scarto massimo
+2·10⁻⁵ mm sulle quote, 4·10⁻⁶ mm sui vertici. È due ordini di grandezza sotto la
+tolleranza con cui il registro distingue due numeri (`5e-4`), quindi non cambia
+nessuna decisione e nessuna riga della tabella passa a «divergente». Ma va saputo,
+perché una quota che cambia di un capello fra due caricamenti dello stesso pezzo
+ha questa causa e non un errore di misura.
+
+Conseguenza pratica sulla tavola: `parts/auto/drawing.py` stampava «46.000» dove
+la mesh OBJ scriveva «46.00», perché in STL quel 46 è 45.9999996. La stampa è ora
+legata alla stessa tolleranza del registro: se il terzo decimale è zero entro
+`5e-4`, si scrivono due cifre.

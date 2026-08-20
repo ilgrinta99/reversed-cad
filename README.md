@@ -9,7 +9,7 @@ paraboloidica sul fianco, e coperchio 73.86 × 46 × 2.5 mm.
 Esiste in due forme, che condividono lo stesso codice di calcolo:
 
 * la **pipeline da riga di comando**, completa e verificata (fasi 1–5);
-* la **web app**, un runner della stessa pipeline in cui si carica un OBJ e si segue tutto dal
+* la **web app**, un runner della stessa pipeline in cui si carica una mesh (OBJ, STL, PLY, WRL) e si segue tutto dal
   browser — analisi, decisioni sulle quote, build, tavola, download.
 
 ## Struttura
@@ -24,7 +24,7 @@ docs/      lost+found_design.md, BUILD-LOG.md, CONVENTIONS.md, webapp-architectu
 
 core/      generico — non sa nulla del pezzo
   freecad/     runner headless: stdin chiuso, timeout, argomenti, sentinella
-  mesh/        caricamento e misura della mesh
+  mesh/        caricamento (OBJ, STL, PLY, WRL) e misura della mesh
   drafting/    motore di disegno: primitive 2D, backend SVG/PDF/DXF, cornice e
                cartiglio, proiezione con linee nascoste, compositore di tavole
   provenance/  registro quote e decisioni: la regola non negoziabile, in codice

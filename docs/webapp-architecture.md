@@ -8,7 +8,7 @@ conteneva sono state confrontate col codice reale e questo documento le riflette
 
 ## 1. Scopo, e i suoi confini
 
-Un **runner web della pipeline Teiser esistente**: l'utente carica un OBJ, l'app
+Un **runner web della pipeline Teiser esistente**: l'utente carica una mesh, l'app
 esegue analisi → parametri → modello → tavola, mostra il passaggio decisionale sulle
 quote, restituisce STEP/STL/PDF/DXF/SVG e il report di verifica, e consente di
 modificare i parametri e rilanciare.
@@ -44,7 +44,8 @@ seguito non tocca gli endpoint.
 
 ```
 core/                     GENERICO — nessuna conoscenza del pezzo
-  mesh/                   caricamento OBJ, segmentazione in corpi e patch,
+  mesh/                   caricamento (loader.py + un lettore per formato: OBJ,
+                          STL, PLY, WRL), segmentazione in corpi e patch,
                           riconoscimento delle primitive, sezioni piane,
                           analisi ad hoc e rilevamento delle ambiguità
   drafting/               motore di disegno: sheet.py (primitive 2D + backend
@@ -111,11 +112,12 @@ discendevano l'elenco delle quote e il catalogo delle ambiguità. Su una mesh
 qualsiasi quel catalogo era semplicemente sbagliato — erano le ambiguità di un
 altro pezzo.
 
-Oggi il caricamento accetta un OBJ e nient'altro, e la lettura avviene in tre
-passaggi, tutti in `core/mesh/`:
+Oggi il caricamento accetta una mesh — OBJ, STL, PLY o WRL — e nient'altro, e la
+lettura avviene in tre passaggi, tutti in `core/mesh/`:
 
 | Modulo | Cosa risponde |
 |---|---|
+| `loader.py` | quale lettore serve per questo file, e cosa manca a quel formato: topologia (STL), nomi dei corpi (STL binario, PLY), precisione doppia (STL, PLY binario) |
 | `patches.py` | di quanti corpi è fatta la mesh, e di quali superfici ogni corpo (piano, cilindro, sfera, libera) |
 | `analysis.py` | quali quote quelle superfici *dimostrano*: ingombri, facce esterne, spessori di parete, cavità, arrotondamenti degli spigoli, fori e asole, simmetria, datum |
 | `ambiguity.py` | dove la misura non è conclusiva, e con quali opzioni numeriche |

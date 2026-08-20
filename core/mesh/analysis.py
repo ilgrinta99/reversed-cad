@@ -26,7 +26,8 @@ from typing import Any
 
 import numpy as np
 
-from core.mesh.obj import Mesh, load_obj
+from core.mesh.loader import load_mesh
+from core.mesh.mesh import Mesh
 from core.mesh.patches import Body, Patch, segment
 
 SOURCE = "core/mesh/analysis.py"
@@ -178,8 +179,9 @@ class MeshAnalysis:
 
 def analyze(path_or_mesh, *, max_bodies: int = 8, log=lambda msg: None) -> MeshAnalysis:
     """Misura una mesh qualsiasi. Nessun parametro dipende dal pezzo."""
-    mesh = path_or_mesh if isinstance(path_or_mesh, Mesh) else load_obj(path_or_mesh)
-    log(f"mesh: {len(mesh)} vertici, {len(mesh.faces)} triangoli")
+    mesh = path_or_mesh if isinstance(path_or_mesh, Mesh) else load_mesh(path_or_mesh)
+    log(f"mesh {mesh.format.upper() or '?'}: {len(mesh)} vertici, "
+        f"{len(mesh.faces)} triangoli")
 
     bodies = segment(mesh, min_area=0.05)
     log(f"{len(bodies)} corpi connessi, "

@@ -3,6 +3,7 @@
 **Fase corrente:** FASI 1–5 completate. FASE 6 (web app) in piedi. FASE 7: l'analisi
 non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la tavola
 è una tavola anche lì, con viste proiettate, sezioni, quote e assonometria.
+FASE 9: la mesh può essere OBJ, STL, PLY o WRL.
 **Aggiornato:** 2026-08-20
 
 ## Fatto
@@ -18,6 +19,7 @@ non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la
       ambiguità misurate sulla mesh caricata (`core/mesh/`, `parts/auto/`)
 - [x] FASE 8 — tavola vera anche per il percorso automatico: motore di disegno in
       `core/drafting/`, viste proiettate da TechDraw, assonometria isometrica
+- [x] FASE 9 — quattro formati di ingresso: OBJ, STL, PLY, WRL
 
 ## Uscite
 | file | contenuto |
@@ -123,6 +125,44 @@ analitica come nelle viste ortogonali, perché anche lì l'HLR non la genera.
 gruppi di spigoli e il quarto — le tangenti *nascoste* — finiva fra i visibili.
 Sulla pianta del TAISER erano due lunghe diagonali piene attraverso la cupola.
 Ora sono tratteggiate, come devono essere.
+
+### Quattro formati di mesh in ingresso (FASE 9)
+
+`core/mesh/loader.py` è l'unico ingresso: sceglie il lettore dal suffisso e non
+annusa il contenuto — un file rinominato per sbaglio deve fallire subito, non tre
+passi più in là sotto forma di quote assurde. L'elenco dei formati sta lì e da lì
+lo prendono sia l'API (rifiuto in caricamento) sia la UI (`/api/health` →
+attributo `accept` del campo file): nessun secondo elenco che invecchia.
+
+| formato | topologia | nomi dei corpi | precisione |
+|---|---|---|---|
+| `.obj` | dichiarata | gruppi `o` / `g` | testo, doppia |
+| `.stl` | **assente** | solo ASCII, `solid` | singola |
+| `.ply` | dichiarata | nessuno | singola se binario |
+| `.wrl` | dichiarata | `DEF` | testo, doppia |
+
+Le tre cose che rendono i formati diversi, e che il codice affronta invece di
+ignorare:
+
+1. **Lo STL non ha topologia.** Ogni triangolo porta i suoi tre vertici: caricato
+   così, la segmentazione troverebbe un corpo per triangolo. I vertici si saldano
+   al caricamento su una griglia da 1e-4 mm — la stessa con cui `patches.py`
+   ricostruisce l'adiacenza — *senza spostarli*: di ogni gruppo si tiene la
+   coordinata del file, non quella arrotondata.
+2. **Il VRML è una scena, non una mesh.** La geometria sta sotto `Transform` che
+   traslano, ruotano e scalano: ignorarli darebbe i pezzi tutti nell'origine, e a
+   vedersi sembrerebbe giusto. Si applicano. Le primitive parametriche (`Box`,
+   `Sphere`, `Cylinder`) non si convertono in triangoli: il file viene rifiutato
+   con un messaggio che le nomina, invece di produrre una mesh vuota.
+3. **Lo STL binario non si riconosce dalla parola `solid`**, che moltissimi
+   esportatori scrivono anche lì: si guarda la dimensione del file, che in un STL
+   binario vale esattamente 84 + 50 × triangoli.
+
+**Verifica:** la mesh del progetto convertita nei quattro formati dà 6 corpi, gli
+stessi ingombri e le stesse 41 quote. STL e PLY divergono di 2·10⁻⁵ mm al massimo
+— è la precisione singola dei due formati, due ordini di grandezza sotto la
+tolleranza con cui il registro distingue due numeri. Da un STL la pipeline gira
+intera e produce gli stessi 11 fogli.
 
 ### Aperto sulla web app
 1. **Immagine Docker mai costruita davvero.** FreeCAD conda-forge è stato verificato

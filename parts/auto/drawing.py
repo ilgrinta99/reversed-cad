@@ -56,9 +56,16 @@ def sanitize(nome: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "_" for c in nome)
 
 
+#: Sotto questo scarto due numeri sono lo stesso numero — è la tolleranza con cui
+#: `core/provenance/` decide se misurato e usato divergono. Legare la stampa a
+#: quella soglia evita sia di scrivere «46.000» per un 45.9999996 che viene dalla
+#: precisione singola di uno STL, sia di nascondere una terza cifra che conta.
+TOLLERANZA_STAMPA = 5e-4
+
+
 def _num(v: float) -> str:
     """Due decimali quando bastano, tre quando servono. Mai arrotondare in silenzio."""
-    return "%.2f" % v if abs(v * 100.0 - round(v * 100.0)) < 1e-6 else "%.3f" % v
+    return "%.2f" % v if abs(v - round(v, 2)) < TOLLERANZA_STAMPA else "%.3f" % v
 
 
 def _ha_interno(body: dict) -> bool:

@@ -31,8 +31,8 @@ FreeCAD headless (una volta installato):
 ```
 
 ## Web app
-Si carica un OBJ e si segue tutto dal browser. **Non si sceglie il pezzo:** la mesh
-caricata è l'unica specifica. `core/mesh/` la misura (corpi, patch, quote) e ne
+Si carica una mesh (`.obj`, `.stl`, `.ply`, `.wrl`) e si segue tutto dal browser.
+**Non si sceglie il pezzo:** la mesh caricata è l'unica specifica. `core/mesh/` la misura (corpi, patch, quote) e ne
 ricava le ambiguità di *quel* file; le schede di decisione compaiono dopo
 l'analisi, non prima. La pipeline cablata del TAISER resta in `parts/teiser/` e si
 raggiunge indicandone l'id all'API: lancia gli script esistenti puntandoli su una
@@ -52,6 +52,9 @@ python -m pytest tests/ -q
   ricostruibile: non lo approssima.
 - La regola non negoziabile qui sopra è codice in `core/provenance/`, non una
   convenzione: una build con quote non misurate né approvate **non parte**.
+- I formati di mesh li dichiara `core/mesh/loader.py`, e da lì li prendono sia
+  l'API sia la UI: nessun secondo elenco. Nessuno dei quattro porta un'unità —
+  si assumono millimetri — e STL/PLY binario sono in precisione singola.
 - Il motore di disegno è `core/drafting/` e non conosce nessun pezzo: FreeCAD
   proietta le viste (`project_script.py`, HLR di TechDraw) e ne scrive gli spigoli
   2D in JSON; impaginazione, quote e i tre formati di uscita sono Python puro.
