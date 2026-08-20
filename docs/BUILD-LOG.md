@@ -212,3 +212,66 @@ Fragile — un loader 3D riordina e duplica i vertici. Il formato comune
 `[x, y, z, scostamento]`, nel riferimento dell'assieme. `compare_model_mesh.py`
 scrive quel JSON quando `TAISER_REPORT` è impostata, e continua a stampare il
 report a schermo come prima.
+
+
+## FASE 8 — la tavola generica, e un difetto vecchio nell'HLR
+
+### `TechDraw.project` ha quattro gruppi, non tre
+
+`TechDraw.project(shape, direzione)` restituisce quattro `Compound` di spigoli, in
+quest'ordine:
+
+| indice | contenuto |
+|---|---|
+| 0 | spigoli vivi in vista |
+| 1 | spigoli di tangenza in vista |
+| 2 | spigoli vivi nascosti |
+| 3 | spigoli di tangenza **nascosti** |
+
+Dalla FASE 4 il gruppo 3 stava fra i visibili. Sulla pianta della scatola questo
+disegnava come linee piene due tangenti nascoste della cupola: le due diagonali
+che attraversavano il pezzo da parte a parte. In assonometria l'errore diventa
+lampante, perché lì le tangenti sono molte. Ora i gruppi sono `(0, 1)` visibili e
+`(2, 3)` nascosti (`core/drafting/hlr.py`).
+
+Il modo di verificarlo senza fidarsi dei nomi: proiettare un cubo e un cilindro.
+Non avendo raccordi, i gruppi 1 e 3 escono vuoti — `box [7, 0, 5, 0]`,
+`cilindro [4, 0, 1, 0]`.
+
+### La silhouette della cupola in una vista obliqua
+
+`silhouette_cupola` copriva le tre viste ortogonali con tre formule scritte a
+mano. In assonometria non serve un quarto caso particolare: il contorno apparente
+di un paraboloide ellittico è analitico per qualunque direzione. Scritta la
+superficie come
+
+    P(v, s) = (x0 + a(1 - v² - s²),  cy + b·v,  cz + c·s)
+
+la normale è proporzionale a `(1/a, 2v/b, 2s/c)` e il contorno apparente è dove la
+normale è ortogonale alla direzione di vista **d**:
+
+    (2a·d_y/b)·v + (2a·d_z/c)·s = -d_x
+
+una *retta* nel piano dei parametri, da intersecare col disco unitario (fuori dal
+disco la cupola finisce e comincia il bordo ellittico, che l'HLR disegna già).
+Per la pianta la formula degenera in `s = 0`, che è esattamente la curva scritta a
+mano in FASE 4: le due coincidono, come devono.
+
+### Il PDF non è latin-1, è cp1252
+
+I font base del PDF sono dichiarati `/WinAnsiEncoding`, che è cp1252, ma il testo
+veniva codificato in latin-1: ogni trattino lungo, virgoletta tipografica o
+apice diventava `?`. Con la tavola del TAISER non si notava — era tutto ASCII — ma
+la tavola generica scrive note e nomi di feature che di trattini lunghi ne hanno.
+Ora si codifica in cp1252, e i pochi simboli che nemmeno cp1252 ha (`↔`, `≤`, `→`)
+si translitterano invece di sparire (`core/drafting/sheet.py`).
+
+### Due tempi, e non poteva essere altrimenti
+
+La tavola del percorso automatico si compone in due passaggi: prima si dichiara
+*quali* viste servono, FreeCAD le proietta e ne scrive gli spigoli 2D in JSON, poi
+— conoscendo l'ingombro reale di ogni proiezione — si sceglie la scala normalizzata
+e si impagina. Non è un'astrazione gratuita: la scala di un foglio dipende da
+quanto misura la proiezione, e quanto misura la proiezione lo sa solo l'HLR.
+L'effetto collaterale utile è che il compositore non importa FreeCAD e si prova
+con un interprete qualsiasi.

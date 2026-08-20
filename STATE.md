@@ -1,7 +1,8 @@
 # STATE
 
 **Fase corrente:** FASI 1–5 completate. FASE 6 (web app) in piedi. FASE 7: l'analisi
-non è più cablata sul TAISER — si carica una mesh e la si misura.
+non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la tavola
+è una tavola anche lì, con viste proiettate, sezioni, quote e assonometria.
 **Aggiornato:** 2026-08-20
 
 ## Fatto
@@ -10,11 +11,13 @@ non è più cablata sul TAISER — si carica una mesh e la si misura.
 - [x] Decisioni A–G ricevute dal committente e applicate
 - [x] FASE 3 — modello parametrico: `cad/params.json` (misurato) + `cad/build_model.py`
 - [x] FASE 5 — verifica contro la mesh, 3 giri di correzione (vedi BUILD-LOG)
-- [x] FASE 4 — tavola tecnica quotata, 3 fogli A3, PDF + DXF + SVG
+- [x] FASE 4 — tavola tecnica quotata, 4 fogli A3, PDF + DXF + SVG
 - [x] FASE 6 — web app: FastAPI + coda job su SQLite + React/three.js, pipeline
       completa dal browser (analisi 10 s, build 6 s, tavola 2 s, confronto 10 s)
 - [x] FASE 7 — analisi ad hoc: niente pezzo da scegliere al caricamento, quote e
       ambiguità misurate sulla mesh caricata (`core/mesh/`, `parts/auto/`)
+- [x] FASE 8 — tavola vera anche per il percorso automatico: motore di disegno in
+      `core/drafting/`, viste proiettate da TechDraw, assonometria isometrica
 
 ## Uscite
 | file | contenuto |
@@ -23,9 +26,9 @@ non è più cablata sul TAISER — si carica una mesh e la si misura.
 | `output/scatola.step`, `output/coperchio.step` | pezzi singoli |
 | `output/model.stl`, `scatola.stl`, `coperchio.stl` | mesh per stampa |
 | `output/taiser.FCStd` | documento FreeCAD |
-| `output/drawing.pdf` | tavola, 3 fogli A3 |
-| `output/drawing.dxf` | stessa tavola, 3 fogli affiancati, 8 layer |
-| `output/drawing_p1..3.svg` | fogli singoli |
+| `output/drawing.pdf` | tavola, 4 fogli A3 (viste, sezioni, coperchio, assonometria) |
+| `output/drawing.dxf` | stessa tavola, 4 fogli affiancati, 9 layer |
+| `output/drawing_p1..4.svg` | fogli singoli |
 
 ## Verifica
 - Ingombri: scatola **80.000 × 46.000 × 27.000** (= tavola T1/T2/T3), coperchio
@@ -85,16 +88,52 @@ l'analisi ritrova 80 × 46 × 26.999 e 74 × 46 × 2.5, gli spessori 1.293 / 2.1
 cui una diversa, e solleva 6 ambiguità — fra cui la cupola come superficie non
 ricostruibile con una primitiva. 41 quote in tabella, nessuna bloccante.
 
+### Tavola quotata anche fuori dal pezzo cablato (FASE 8)
+
+Fino a qui la tavola vera era solo quella del TAISER: il percorso automatico
+produceva un SVG con tre rettangoli d'ingombro e una quota per rettangolo. Ora i
+due percorsi producono la stessa classe di documento, perché il motore di disegno
+è diventato generico.
+
+| Modulo | Cosa fa |
+|---|---|
+| `core/drafting/sheet.py` | primitive 2D e i tre backend (SVG, PDF, DXF). Era `cad/draft2d.py` |
+| `core/drafting/layout.py` | cornice, cartiglio ISO 7200, scale normalizzate ISO 5455, disposizione in primo diedro |
+| `core/drafting/hlr.py` | proiezione con rimozione delle linee nascoste (TechDraw), sezioni, assonometria |
+| `core/drafting/project_script.py` | gira **dentro** FreeCAD e riversa gli spigoli 2D in JSON |
+| `core/drafting/tavola.py` | compositore: una specifica dichiarativa diventa fogli |
+| `parts/auto/drawing.py` | *cosa* disegnare per una ricetta: viste, piani di sezione, quote |
+
+Il confine è il JSON degli spigoli: FreeCAD proietta, tutto il resto —
+impaginazione, quotatura, tre formati di uscita — è Python puro e si prova senza
+FreeCAD.
+
+Sulla mesh del TAISER il percorso automatico produce **11 fogli A3**: un foglio
+d'assieme con l'assonometria, un foglio di viste ortogonali quotate per ciascuno
+dei 6 corpi, due fogli di sezioni (i corpi con cavità) e il registro delle quote
+con la provenienza di ogni numero. Sulle viste ortogonali di ogni corpo è
+ricalcato in rosso il profilo della mesh sezionata a metà: si vede a occhio quanto
+il prisma ricostruito si scosta dal pezzo, prima ancora del confronto numerico.
+
+La tavola del TAISER guadagna un quarto foglio, l'assonometria isometrica di
+assieme, scatola e coperchio; la silhouette della cupola in assonometria è
+analitica come nelle viste ortogonali, perché anche lì l'HLR non la genera.
+
+**Correzione di un difetto vecchio:** `TechDraw.project` restituisce quattro
+gruppi di spigoli e il quarto — le tangenti *nascoste* — finiva fra i visibili.
+Sulla pianta del TAISER erano due lunghe diagonali piene attraverso la cupola.
+Ora sono tratteggiate, come devono essere.
+
 ### Aperto sulla web app
 1. **Immagine Docker mai costruita davvero.** FreeCAD conda-forge è stato verificato
    installandolo direttamente (è quel che fa il Dockerfile), ma nel container di
    sviluppo non c'era un demone Docker: `docker build` va eseguito una volta.
 2. **Peso dei run: 47 MB**, di cui 44 MB di STL a tassellazione fine. L'anteprima usa
    `preview.stl` (1.6 MB), ma la cartella del run non viene mai ripulita.
-3. **Build automatica mai girata sotto FreeCAD.** `parts/auto/build_script.py` è
-   scritto ma il container di sviluppo non ha FreeCAD: analisi, ambiguità, tavola
-   SVG e confronto sono verificati girando davvero, la generazione di STEP/STL del
-   percorso `auto` no. È il primo controllo da fare dove FreeCAD c'è.
+3. ~~**Build automatica mai girata sotto FreeCAD.**~~ Fatto in FASE 8: con FreeCAD
+   1.1.3 da conda-forge la pipeline `auto` gira intera su `input/model.obj` —
+   analisi 0.2 s, build 0.3 s (6 corpi, STEP + STL), tavola 1.0 s (11 fogli A3,
+   34 viste proiettate), confronto 0.1 s.
 4. **Il ricostruttore automatico è elementare.** Su una mesh con superfici libere
    il solido è una semplificazione dichiarata, non il modello finito: il confronto
    ne misura il costo.

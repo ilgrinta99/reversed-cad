@@ -31,7 +31,7 @@ l'id all'API. Non è più il percorso predefinito.
 | Coda job | in-process (worker pool asyncio/thread), stato e log su **SQLite** |
 | Log live | SSE (`text/event-stream`) |
 | Frontend | React + Vite, three.js per anteprima STL e mappa di scostamento |
-| Tavola in browser | SVG prodotto da `draft2d.py` — nessun FreeCAD nel percorso di anteprima |
+| Tavola in browser | SVG prodotto da `core/drafting/` — FreeCAD proietta, l'impaginazione è Python puro |
 | Packaging | Docker, FreeCAD da **conda-forge** in immagine Linux |
 | Hosting | locale (docker compose) per ora; l'immagine resta deployabile altrove |
 
@@ -47,7 +47,10 @@ core/                     GENERICO — nessuna conoscenza del pezzo
   mesh/                   caricamento OBJ, segmentazione in corpi e patch,
                           riconoscimento delle primitive, sezioni piane,
                           analisi ad hoc e rilevamento delle ambiguità
-  drafting/               draft2d.py — primitive 2D + backend SVG/PDF/DXF
+  drafting/               motore di disegno: sheet.py (primitive 2D + backend
+                          SVG/PDF/DXF), layout.py (cornice, cartiglio, scale
+                          normalizzate, primo diedro), tavola.py (compositore),
+                          hlr.py + project_script.py (proiezione TechDraw)
   compare/                distanza punto-superficie modello ↔ mesh
   provenance/             registro delle quote: misurato / usato / origine / approvazione
   freecad/                runner headless (§4)
@@ -94,9 +97,11 @@ interfacce:
 * `parts/teiser/` porta lo `schema.py` (46 quote mappate sui percorsi di
   params.json), le `decisions.py` (A–G e D1–D8 trascritte) e il cablaggio.
 
-`cad/draft2d.py` non è stato toccato: `make_drawing.py` lo usa com'è, e l'SVG che
-produce è quello che il browser mostra. Nessun FreeCAD nel percorso di anteprima,
-come previsto.
+Il motore di disegno è poi passato da `cad/draft2d.py` a `core/drafting/`, che è
+il posto che la regola di collocazione gli assegnava da sempre: non contiene un
+solo numero del TAISER. `cad/draft2d.py` resta come guscio, così i comandi
+documentati continuano a funzionare. `make_drawing.py` disegna gli stessi fogli di
+prima e ne aggiunge un quarto, l'assonometria.
 
 ### 3.2 Analisi ad hoc: le quote e le domande vengono dalla mesh
 
@@ -163,8 +168,13 @@ incorpora così che non possano essere dimenticate da chi chiama:
 4. L'**HLR di TechDraw** non genera la silhouette delle BSpline in alcune viste.
    Per la cupola si disegna sempre la curva analitica del paraboloide.
 5. In headless **TechDraw calcola le quote ma non le disegna** (la grafica sta nel
-   lato GUI). Per questo esiste `draft2d.py`, ed è la ragione per cui l'anteprima
-   della tavola nel browser non richiede FreeCAD.
+   lato GUI). Per questo esiste `core/drafting/sheet.py`, ed è la ragione per cui
+   ricomporre una tavola già proiettata non richiede FreeCAD.
+5b. `TechDraw.project` restituisce **quattro** gruppi di spigoli, in quest'ordine:
+   vivi in vista, di tangenza in vista, vivi nascosti, di tangenza nascosti. Il
+   quarto era finito fra i visibili, e disegnava come spigoli pieni le tangenti
+   nascoste della cupola: due lunghe diagonali sulla pianta. Verificabile su un
+   cubo e un cilindro, dove i gruppi 1 e 3 restano vuoti.
 6. Simboli: nel PDF servono font in `WinAnsiEncoding`; nel DXF i codici `%%c`
    (diametro) e `%%d` (grado).
 

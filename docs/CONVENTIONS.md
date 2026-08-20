@@ -67,7 +67,10 @@ Vale per il codice della web app, e decide dove va scritta una funzione nuova:
 - **se contiene un numero, un nome di feature o un'assunzione geometrica del
   contenitore TAISER, sta in `parts/teiser/`**;
 - tutto il resto è `core/`: caricamento mesh, runner FreeCAD, registro delle quote,
-  formato del confronto, motore di disegno.
+  formato del confronto, motore di disegno (`core/drafting/`: primitive e backend,
+  cornice e cartiglio, proiezione con linee nascoste, compositore di tavole).
+  *Quali* viste e *quali* quote vanno in tavola è invece di chi la compone, e sta
+  in `parts/` (`parts/auto/drawing.py` per il ricostruttore automatico).
 
 Il backend web non importa mai `parts.teiser`: passa dal registry di `core.plugin`.
 

@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { api } from '../api.js'
 
 // La tavola si vede nel browser senza passare da FreeCAD: il motore di disegno
-// (cad/draft2d.py) è Python puro e produce SVG. Gli stessi fogli escono in PDF e
-// DXF dallo stesso codice.
+// (core/drafting/) è Python puro e produce SVG. Gli stessi fogli escono in PDF e
+// DXF dallo stesso codice — FreeCAD serve solo prima, per proiettare le viste.
+// I fogli possono essere parecchi (uno per corpo, più sezioni e registro): la
+// pulsantiera va a capo invece di allargare il pannello.
 export default function DrawingPreview({ runId, sheets }) {
   const [index, setIndex] = useState(0)
   const [svg, setSvg] = useState(null)

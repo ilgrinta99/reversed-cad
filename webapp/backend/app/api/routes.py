@@ -39,8 +39,9 @@ def health() -> dict[str, Any]:
         freecad = None
     return {
         "status": "ok",
-        # FreeCAD assente non impedisce di aprire l'app: analisi mesh e anteprima
-        # della tavola (draft2d, Python puro) funzionano comunque. Va però detto.
+        # FreeCAD assente non impedisce di aprire l'app: l'analisi della mesh, la
+        # tabella delle quote e le decisioni funzionano comunque. Build e tavola
+        # no — la tavola si disegna sul solido costruito. Va però detto.
         "freecad": freecad,
         "parts": [p.id for p in part_registry.all()],
     }

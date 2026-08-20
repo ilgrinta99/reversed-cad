@@ -52,6 +52,10 @@ python -m pytest tests/ -q
   ricostruibile: non lo approssima.
 - La regola non negoziabile qui sopra è codice in `core/provenance/`, non una
   convenzione: una build con quote non misurate né approvate **non parte**.
+- Il motore di disegno è `core/drafting/` e non conosce nessun pezzo: FreeCAD
+  proietta le viste (`project_script.py`, HLR di TechDraw) e ne scrive gli spigoli
+  2D in JSON; impaginazione, quote e i tre formati di uscita sono Python puro.
+  *Cosa* disegnare lo decide chi compone la tavola (`parts/auto/drawing.py`).
 - Architettura e stato: `docs/webapp-architecture.md`.
 
 ## Ambiente

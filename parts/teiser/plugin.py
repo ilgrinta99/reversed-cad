@@ -148,20 +148,20 @@ class TeiserPart:
             raise FileNotFoundError(
                 "la tavola si genera dal modello: eseguire prima la build"
             )
-        ctx.log(f"tavola con {DRAW.relative_to(ROOT)} su cad/draft2d.py")
+        ctx.log(f"tavola con {DRAW.relative_to(ROOT)} su core/drafting/")
         run_script(DRAW, cwd=ROOT, timeout_s=ctx.timeout_s, on_line=ctx.log,
                    env={"TAISER_PARAMS": str(params_path), "TAISER_OUT": str(ctx.run_dir)})
-        return StepResult(
-            artifacts={
-                "pdf": ctx.run_dir / "drawing.pdf",
-                "dxf": ctx.run_dir / "drawing.dxf",
-                # L'anteprima nel browser è l'SVG: draft2d è Python puro, nessun
-                # FreeCAD nel percorso di visualizzazione.
-                "svg": ctx.run_dir / "drawing_p1.svg",
-                "svg_p2": ctx.run_dir / "drawing_p2.svg",
-                "svg_p3": ctx.run_dir / "drawing_p3.svg",
-            },
-        )
+        # Quattro fogli: viste, sezioni, coperchio, assonometria. L'elenco si
+        # ricava dai file scritti, così aggiungere un foglio alla tavola non
+        # richiede di ricordarsi di aggiornare anche questo.
+        svg = sorted(ctx.run_dir.glob("drawing_p*.svg"),
+                     key=lambda p: int(p.stem.rsplit("p", 1)[-1]))
+        artefatti = {"pdf": ctx.run_dir / "drawing.pdf", "dxf": ctx.run_dir / "drawing.dxf"}
+        for i, path in enumerate(svg, start=1):
+            # L'anteprima nel browser è l'SVG: il motore di disegno è Python puro,
+            # nessun FreeCAD nel percorso di visualizzazione.
+            artefatti["svg" if i == 1 else f"svg_p{i}"] = path
+        return StepResult(artifacts=artefatti, metrics={"fogli": len(svg)})
 
     def compare(self, ctx: RunContext, model_path: Path) -> StepResult:
         params_path = ctx.run_dir / "params.json"
