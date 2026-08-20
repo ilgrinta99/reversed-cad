@@ -60,7 +60,7 @@ export default function App() {
           {health
             ? health.freecad
               ? 'FreeCAD disponibile'
-              : 'FreeCAD non disponibile: analisi e tavola funzionano, la build no'
+              : 'FreeCAD non disponibile: analisi e quote funzionano, build e tavola no'
             : '…'}
         </span>
         <div className="spacer" />
@@ -75,7 +75,7 @@ export default function App() {
       <main>
         {error && <p className="error">{error}</p>}
 
-        {!run && <UploadPanel onCreated={setRun} />}
+        {!run && <UploadPanel formats={health?.mesh_formats} onCreated={setRun} />}
 
         {run && (
           <>

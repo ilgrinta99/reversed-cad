@@ -22,15 +22,18 @@ from pathlib import Path
 import numpy as np
 
 from core.compare import deviation
+from core.drafting import tavola
 from core.freecad.runner import run_script
 from core.mesh.ambiguity import read as read_ambiguities
 from core.mesh.analysis import analyze
-from core.mesh.obj import load_obj
+from core.mesh.loader import load_mesh
 from core.mesh.sections import cross_section, polygon_area
 from core.plugin import RunContext, StepResult, registry
 from core.provenance import DecisionSet, Registry
+from parts.auto import drawing
 
 _HERE = Path(__file__).parent
+_CORE_DRAFTING = Path(__file__).resolve().parents[2] / "core" / "drafting"
 ANALYSIS_FILE = "analysis.json"
 RECIPE_FILE = "recipe.json"
 
@@ -111,19 +114,70 @@ class AutoPart:
         )
 
     def draw(self, ctx: RunContext, registry_: Registry) -> StepResult:
-        """Tre viste quotate in SVG. Nessun FreeCAD nel percorso di anteprima.
+        """Tavola quotata completa: viste ortogonali, sezioni, assonometria, registro.
 
-        In pianta, sopra il rettangolo di ingombro, viene ricalcato il contorno
-        vero della mesh a mezza altezza: è quello che permette di vedere a colpo
-        d'occhio quanto il prisma ricostruito somiglia al pezzo, senza aspettare
-        la build e il confronto.
+        La geometria delle viste è proiettata da FreeCAD (`TechDraw.project`, HLR
+        esatto sui B-rep) e attraversa il confine come JSON di spigoli 2D;
+        l'impaginazione, la quotatura e i tre formati di uscita sono Python puro in
+        `core/drafting/`. È il motivo per cui la tavola si può ricomporre senza
+        rifare la proiezione, e per cui il compositore è provabile senza FreeCAD.
+
+        Sulle viste ortogonali di ogni corpo viene ricalcato il profilo vero della
+        mesh, sezionata a metà: è quello che permette di vedere a colpo d'occhio
+        quanto il prisma ricostruito somiglia al pezzo.
         """
         recipe = json.loads((ctx.run_dir / RECIPE_FILE).read_text()) \
             if (ctx.run_dir / RECIPE_FILE).is_file() else self._recipe(ctx, registry_)
-        out = ctx.artifact("drawing.svg")
-        out.write_text(_three_view_svg(recipe, _plan_outlines(ctx.mesh_path, recipe)))
-        ctx.log(f"tavola SVG scritta: {len(recipe['bodies'])} corpi, quote in mm")
-        return StepResult(artifacts={"svg": out})
+        analysis = json.loads((ctx.run_dir / ANALYSIS_FILE).read_text())
+
+        proiezioni = self._proietta(ctx, recipe)
+        fogli = drawing.fogli(
+            recipe, analysis, registry_, proiezioni,
+            sorgente=recipe.get("source", ctx.mesh_path.name),
+            contorni=_contorni_mesh(ctx.mesh_path, recipe),
+            decisioni=self._decisioni_prese(ctx),
+            scostamento=_scostamento(ctx.run_dir),
+        )
+        artefatti = tavola.componi(fogli, proiezioni, ctx.run_dir, "drawing",
+                                   titolo_pdf="Modello ricostruito dalla mesh")
+        ctx.log(f"tavola: {len(fogli)} fogli A3, {len(proiezioni)} viste proiettate, "
+                f"PDF + DXF + {sum(1 for k in artefatti if k.startswith('svg'))} SVG")
+        return StepResult(
+            artifacts=artefatti,
+            metrics={"fogli": len(fogli), "viste": len(proiezioni),
+                     "corpi": len(recipe["bodies"])},
+        )
+
+    def _proietta(self, ctx: RunContext, recipe: dict) -> dict:
+        """Chiede a FreeCAD la proiezione di ogni vista e rilegge il JSON.
+
+        I solidi sono quelli scritti dalla build: la tavola descrive il modello
+        costruito, non la ricetta che lo ha generato. Se mancano, lo step di build
+        non è passato di qui, e disegnare una tavola sarebbe un falso.
+        """
+        shapes = {"assieme": ctx.run_dir / "model.step"}
+        for body in recipe["bodies"]:
+            shapes[body["key"]] = ctx.run_dir / f"{drawing.sanitize(body['name'])}.step"
+        mancanti = [str(p.name) for p in shapes.values() if not p.is_file()]
+        if mancanti:
+            raise FileNotFoundError(
+                "la tavola si disegna sul solido costruito, e questi file non ci sono: "
+                f"{', '.join(mancanti)}. Eseguire prima lo step «build»."
+            )
+
+        spec = ctx.artifact("views.json")
+        spec.write_text(json.dumps(
+            {"shapes": {k: str(v) for k, v in shapes.items()},
+             "views": drawing.viste_richieste(recipe)}, indent=2))
+        fuori = ctx.run_dir / "projection.json"
+        run_script(_CORE_DRAFTING / "project_script.py", [str(spec), str(fuori)],
+                   timeout_s=ctx.timeout_s, on_line=ctx.log)
+        return json.loads(fuori.read_text())["views"]
+
+    def _decisioni_prese(self, ctx: RunContext) -> list[dict]:
+        if ctx.decisions is None:
+            return []
+        return [{"id": d.id, "chosen": d.chosen} for d in ctx.decisions]
 
     def compare(self, ctx: RunContext, model_path: Path) -> StepResult:
         """Distanza fra i punti della mesh e la superficie del solido costruito.
@@ -134,7 +188,7 @@ class AutoPart:
         suo valore: è il modo in cui una semplificazione dichiarata resta
         verificabile invece che nascosta.
         """
-        mesh = load_obj(ctx.mesh_path)
+        mesh = load_mesh(ctx.mesh_path)
         recipe = json.loads((ctx.run_dir / RECIPE_FILE).read_text())
         samples = _surface_samples(mesh)
         distances = _distance_to_recipe(samples, recipe)
@@ -196,6 +250,9 @@ class AutoPart:
                 continue
             bodies.append({
                 "name": body["name"],
+                # Prefisso delle quote di questo corpo nel registro: e' con questo
+                # che la tavola risale al numero da scrivere accanto a una linea.
+                "key": key,
                 "origin": body["bbox_min"],
                 "size": size,
                 "fillet": _fillet(values, key),
@@ -287,80 +344,53 @@ def _distance_to_recipe(points: np.ndarray, recipe: dict) -> np.ndarray:
     return best if best is not None else np.zeros(len(points))
 
 
-def _plan_outlines(mesh_path: Path, recipe: dict) -> dict[str, list]:
-    """Contorno reale in pianta di ogni corpo, a mezza altezza.
+#: Vista -> (asse tagliato, assi che restano). Gli assi residui di `cross_section`
+#: escono già nell'ordine della vista: sezione su Z ⇒ (X, Y) ⇒ pianta.
+_PIANI = {"pianta": (2, (0, 1)), "prospetto": (1, (0, 2)), "laterale": (0, (1, 2))}
 
-    Serve la mesh intera perché la sezione taglia i triangoli: il contorno esterno
-    è quello con l'ingombro più grande fra quelli che il piano produce.
+
+def _contorni_mesh(mesh_path: Path, recipe: dict) -> dict[str, dict[str, list]]:
+    """Profilo reale di ogni corpo nelle tre viste, sezionando la mesh a metà.
+
+    Serve la mesh intera perché la sezione taglia i triangoli: il contorno del
+    corpo è quello con l'area più grande fra quelli che il piano produce dentro il
+    suo ingombro. È geometria di confronto, non del modello: sulla tavola ha uno
+    stile e un layer suoi.
     """
     try:
-        mesh = load_obj(mesh_path)
+        mesh = load_mesh(mesh_path)
     except (OSError, ValueError):
         return {}
-    outlines: dict[str, list] = {}
+    fuori: dict[str, dict[str, list]] = {}
     for body in recipe["bodies"]:
-        origin = [float(v) for v in body["origin"]]
-        size = [float(v) for v in body["size"]]
-        contours = cross_section(mesh.vertices, mesh.faces, 2, origin[2] + size[2] / 2.0)
-        inside = [c for c in contours
-                  if (c.min(axis=0) >= np.array(origin[:2]) - 1e-6).all()
-                  and (c.max(axis=0) <= np.array(origin[:2]) + np.array(size[:2]) + 1e-6).all()]
-        if not inside:
-            continue
-        outer = max(inside, key=polygon_area)
-        outlines[body["name"]] = [[float(x), float(y)] for x, y in outer]
-    return outlines
+        origin = np.asarray([float(v) for v in body["origin"]])
+        size = np.asarray([float(v) for v in body["size"]])
+        per_vista: dict[str, list] = {}
+        for nome, (asse, residui) in _PIANI.items():
+            contours = cross_section(mesh.vertices, mesh.faces, asse,
+                                     origin[asse] + size[asse] / 2.0)
+            lo = origin[list(residui)] - 1e-6
+            hi = origin[list(residui)] + size[list(residui)] + 1e-6
+            dentro = [c for c in contours
+                      if (c.min(axis=0) >= lo).all() and (c.max(axis=0) <= hi).all()]
+            if dentro:
+                per_vista[nome] = [[float(a), float(b)]
+                                   for a, b in max(dentro, key=polygon_area)]
+        if per_vista:
+            fuori[body["key"]] = per_vista
+    return fuori
 
 
-def _three_view_svg(recipe: dict, outlines: dict[str, list] | None = None) -> str:
-    """Fronte, lato e pianta dell'ingombro di ogni corpo, quotati."""
-    margin, gap = 30.0, 25.0
-    outlines = outlines or {}
-    rows, width, height = [], 0.0, margin
-    for body in recipe["bodies"]:
-        length, depth, tall = (float(v) for v in body["size"])
-        rows.append((body["name"], length, depth, tall, height, body["origin"]))
-        width = max(width, margin * 2 + length + gap + depth)
-        height += tall + gap + depth + gap * 2
-    height += margin
-
-    parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width:.1f}mm" '
-        f'height="{height:.1f}mm" viewBox="0 0 {width:.1f} {height:.1f}">',
-        '<style>text{font:3.5px sans-serif;fill:#111}'
-        '.o{fill:none;stroke:#111;stroke-width:0.35}'
-        '.d{stroke:#111;stroke-width:0.18}'
-        '.mesh{fill:none;stroke:#c33;stroke-width:0.25;stroke-dasharray:1.2 0.8}</style>',
-        f'<rect x="0" y="0" width="{width:.1f}" height="{height:.1f}" fill="#fff"/>',
-    ]
-    for name, length, depth, tall, top, origin in rows:
-        parts.append(f'<text x="{margin:.2f}" y="{top - 4:.2f}">{name}</text>')
-        outline = outlines.get(name)
-        if outline:
-            # La pianta sta sotto le due viste in alzato; il contorno va portato
-            # nel riferimento del foglio, con Y verso il basso come in SVG.
-            base_y = top + tall + gap
-            points = " ".join(
-                f"{margin + (x - float(origin[0])):.2f},"
-                f"{base_y + depth - (y - float(origin[1])):.2f}"
-                for x, y in outline
-            )
-            parts.append(f'<polygon class="mesh" points="{points}"/>')
-        for x, y, w, h, label in (
-            (margin, top, length, tall, "Fronte"),
-            (margin + length + gap, top, depth, tall, "Lato"),
-            (margin, top + tall + gap, length, depth, "Pianta (tratteggio: mesh)"),
-        ):
-            parts.append(f'<rect class="o" x="{x:.2f}" y="{y:.2f}" '
-                         f'width="{w:.2f}" height="{h:.2f}"/>')
-            parts.append(f'<text x="{x:.2f}" y="{y - 1:.2f}">{label}</text>')
-            quota = y + h + 8
-            parts.append(f'<line class="d" x1="{x:.2f}" y1="{quota:.2f}" '
-                         f'x2="{x + w:.2f}" y2="{quota:.2f}"/>')
-            parts.append(f'<text x="{x + w / 2:.2f}" y="{quota - 1:.2f}" '
-                         f'text-anchor="middle">{w:.2f}</text>')
-    parts.append("</svg>")
-    return "\n".join(parts)
+def _scostamento(run_dir: Path) -> dict | None:
+    """Statistica del confronto, se il run l'ha già prodotta. Non si ricalcola qui."""
+    path = run_dir / "deviation.json"
+    if not path.is_file():
+        return None
+    try:
+        stats = json.loads(path.read_text()).get("stats")
+    except (OSError, ValueError):
+        return None
+    return {k: float(v) for k, v in stats.items()} if isinstance(stats, dict) else None
 
 
 plugin = registry.register(AutoPart())

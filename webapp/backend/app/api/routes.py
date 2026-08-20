@@ -11,6 +11,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from core.mesh.loader import ELENCO as ELENCO_MESH
+from core.mesh.loader import SUFFISSI as SUFFISSI_MESH
 from core.plugin import registry as part_registry
 from core.provenance import UnapprovedDimensions
 from webapp.backend.app.jobs.queue import queue
@@ -19,7 +21,10 @@ from webapp.backend.app.storage import runs as store
 
 router = APIRouter(prefix="/api")
 
-MESH_SUFFIXES = {".obj"}
+#: I formati che si possono caricare li dichiara il caricatore, non questo file:
+#: un elenco scritto due volte è un elenco che prima o poi diverge, e la divergenza
+#: si vedrebbe come un upload accettato e un'analisi che fallisce dopo.
+MESH_SUFFIXES = SUFFISSI_MESH
 COMPANION_SUFFIXES = {".mtl", ".png", ".jpg", ".jpeg", ".pdf", ".svg"}
 
 #: Pipeline usata quando la richiesta non ne indica una — cioè sempre, dalla UI.
@@ -39,10 +44,14 @@ def health() -> dict[str, Any]:
         freecad = None
     return {
         "status": "ok",
-        # FreeCAD assente non impedisce di aprire l'app: analisi mesh e anteprima
-        # della tavola (draft2d, Python puro) funzionano comunque. Va però detto.
+        # FreeCAD assente non impedisce di aprire l'app: l'analisi della mesh, la
+        # tabella delle quote e le decisioni funzionano comunque. Build e tavola
+        # no — la tavola si disegna sul solido costruito. Va però detto.
         "freecad": freecad,
         "parts": [p.id for p in part_registry.all()],
+        # Li dice il server perché è il server a saperli leggere: la UI non ha
+        # motivo di avere un secondo elenco che invecchia per conto suo.
+        "mesh_formats": sorted(SUFFISSI_MESH),
     }
 
 
@@ -79,7 +88,8 @@ async def create_run(
 
     mesh_name = Path(mesh.filename or "model.obj").name
     if Path(mesh_name).suffix.lower() not in MESH_SUFFIXES:
-        raise HTTPException(400, f"atteso un file .obj, ricevuto {mesh_name!r}")
+        raise HTTPException(
+            400, f"formato mesh non supportato: {mesh_name!r}. Attesi: {ELENCO_MESH}.")
 
     try:
         declared_dimensions = plugin.declare_dimensions()

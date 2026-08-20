@@ -63,15 +63,29 @@ def test_pezzi_collegati(client, box_obj: Path):
     assert resp.status_code == 404
 
 
-def test_solo_obj_accettato(client, box_obj: Path):
+def test_solo_i_formati_mesh_sono_accettati(client, box_obj: Path):
+    """Quattro formati sì, il resto no — e il rifiuto dice quali sono.
+
+    L'elenco non è scritto nell'endpoint: viene da `core/mesh/loader.py`, che è
+    l'unico posto che sa davvero cosa si riesce a leggere.
+    """
+    from core.mesh.loader import SUFFISSI
+
     with box_obj.open("rb") as fh:
         resp = client.post(
             "/api/runs",
             data={"part_id": "demo_box"},
-            files={"mesh": ("modello.stl", fh, "text/plain")},
+            files={"mesh": ("modello.3mf", fh, "text/plain")},
         )
     assert resp.status_code == 400
-    assert ".obj" in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    for suffisso in SUFFISSI:
+        assert suffisso in detail
+
+
+def test_i_formati_letti_sono_dichiarati_da_health(client):
+    formati = client.get("/api/health").json()["mesh_formats"]
+    assert set(formati) == {".obj", ".stl", ".ply", ".wrl"}
 
 
 def test_run_nasce_senza_quote_usate(run):

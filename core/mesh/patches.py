@@ -22,7 +22,7 @@ from typing import Iterator
 
 import numpy as np
 
-from core.mesh.obj import Mesh
+from core.mesh.mesh import Mesh
 
 #: Due vertici più vicini di così sono lo stesso vertice. Gli export triangolati
 #: duplicano i vertici per faccia: senza saldatura non esistono spigoli condivisi

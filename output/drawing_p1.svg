@@ -21,7 +21,7 @@
 <text x="18" y="261" font-family="Helvetica,Arial" font-size="2" text-anchor="start" fill="rgb(0,0,0)">PROIEZIONE</text>
 <text x="18" y="265.5" font-family="Helvetica,Arial" font-size="2.8" text-anchor="start" fill="rgb(0,0,0)">europea (1o diedro)</text>
 <text x="118" y="239" font-family="Helvetica,Arial" font-size="2" text-anchor="start" fill="rgb(0,0,0)">FOGLIO</text>
-<text x="118" y="243.5" font-family="Helvetica,Arial" font-size="2.8" text-anchor="start" fill="rgb(0,0,0)">1 di 3</text>
+<text x="118" y="243.5" font-family="Helvetica,Arial" font-size="2.8" text-anchor="start" fill="rgb(0,0,0)">1 di 4</text>
 <text x="118" y="250" font-family="Helvetica,Arial" font-size="2" text-anchor="start" fill="rgb(0,0,0)">FORMATO</text>
 <text x="118" y="254.5" font-family="Helvetica,Arial" font-size="2.8" text-anchor="start" fill="rgb(0,0,0)">A3   420 x 297</text>
 <text x="118" y="261" font-family="Helvetica,Arial" font-size="2" text-anchor="start" fill="rgb(0,0,0)">ORIGINE</text>
@@ -746,6 +746,7 @@
 <line x1="75.1849" y1="58" x2="75.003" y2="58" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="75.003" y1="63.996" x2="75.003" y2="58" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="71.937" y1="58" x2="75.003" y2="58" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
+<line x1="59" y1="109" x2="151" y2="109" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="88.2338" y1="89.642" x2="88.2201" y2="89.8667" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="88.2105" y1="89.3496" x2="88.2338" y2="89.642" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="59" y1="109" x2="59" y2="58" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
@@ -906,7 +907,6 @@
 <line x1="120.35" y1="88.2965" x2="120.51" y2="88.4797" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="120.51" y1="88.4797" x2="120.786" y2="88.9723" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="120.786" y1="88.9723" x2="120.894" y2="89.641" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
-<line x1="59" y1="109" x2="151" y2="109" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="59" y1="109" x2="151" y2="109" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="70.238" y1="90.545" x2="70.273" y2="91.2797" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="70.273" y1="91.2797" x2="70.3779" y2="92.0129" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
@@ -1888,6 +1888,7 @@
 <line x1="281.556" y1="62.707" x2="285.248" y2="62.707" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="281.556" y1="65.109" x2="285.248" y2="65.109" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="281.556" y1="65.596" x2="285.248" y2="65.596" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
+<line x1="192" y1="109" x2="339.72" y2="109" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="192" y1="109" x2="192" y2="58" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="339.72" y1="109" x2="339.72" y2="58" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="192" y1="58" x2="339.72" y2="58" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
@@ -1983,7 +1984,6 @@
 <line x1="350.258" y1="88.2217" x2="350.38" y2="88.485" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="350.38" y1="88.485" x2="350.515" y2="88.8795" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="350.515" y1="88.8795" x2="350.656" y2="89.642" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
-<line x1="192" y1="109" x2="339.72" y2="109" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="192" y1="109" x2="339.72" y2="109" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="339.72" y1="106.921" x2="340.068" y2="106.687" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="340.068" y1="106.687" x2="340.412" y2="106.453" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
@@ -2764,6 +2764,10 @@
 <line x1="253.858" y1="227.044" x2="257.55" y2="227.044" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="281.556" y1="226.922" x2="285.248" y2="226.922" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="281.556" y1="227.044" x2="285.248" y2="227.044" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
+<line x1="195" y1="240" x2="195" y2="154" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
+<line x1="195" y1="240" x2="336.72" y2="240" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
+<line x1="195" y1="154" x2="336.72" y2="154" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
+<line x1="336.72" y1="240" x2="336.72" y2="154" stroke="rgb(102,102,102)" stroke-width="0.25" fill="none" stroke-dasharray="2,1"/>
 <line x1="337.12" y1="221.096" x2="337.12" y2="172.904" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="337.12" y1="221.096" x2="337.12" y2="218.603" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="337.12" y1="213.766" x2="337.12" y2="172.904" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
@@ -2980,10 +2984,6 @@
 <line x1="253.858" y1="226.922" x2="257.55" y2="226.922" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="281.556" y1="227.044" x2="285.248" y2="227.044" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="281.556" y1="226.922" x2="285.248" y2="226.922" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
-<line x1="195" y1="240" x2="195" y2="154" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
-<line x1="195" y1="240" x2="336.72" y2="240" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
-<line x1="195" y1="154" x2="336.72" y2="154" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
-<line x1="336.72" y1="240" x2="336.72" y2="154" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="339.72" y1="231.762" x2="340.068" y2="231.265" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="340.068" y1="231.265" x2="340.412" y2="230.769" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>
 <line x1="340.412" y1="230.769" x2="340.75" y2="230.272" stroke="rgb(0,0,0)" stroke-width="0.5" fill="none"/>

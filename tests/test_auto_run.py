@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import needs_freecad
+
 
 def wait_job(client, job_id: str, timeout: float = 180.0) -> dict:
     deadline = time.monotonic() + timeout
@@ -100,21 +102,55 @@ def test_ambiguita_generate_dalla_mesh_caricata(client, tmp_path_factory):
     assert dims["c1_ingombro_x"]["status"] == "approved_override"
 
 
-def test_tavola_e_analisi_senza_freecad(client, run):
-    """Anteprima della tavola e report di analisi non passano da FreeCAD."""
-    job = wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/draw").json()["id"])
-    assert job["state"] == "succeeded", job["error"]
-    svg = client.get(f"/api/runs/{run['id']}/artifacts/drawing.svg")
-    assert svg.status_code == 200
-    assert "Pianta" in svg.text
-    # In pianta il contorno vero della mesh è ricalcato sopra l'ingombro: è il
-    # modo per vedere la differenza fra pezzo e ricostruzione senza la build.
-    assert 'class="mesh"' in svg.text
-
+def test_analisi_senza_freecad(client, run):
+    """Il report di analisi non passa da FreeCAD: è la mesh, misurata."""
     analysis = client.get(f"/api/runs/{run['id']}/artifacts/analysis.json").json()
     assert analysis["triangles"] == 12
     assert analysis["bodies"][0]["closed"] is True
     assert any(f["kind"] == "prisma" for f in analysis["features"])
+
+
+def test_la_tavola_vuole_il_solido_costruito(client, box_obj):
+    """Disegnare prima di costruire produrrebbe una tavola di niente.
+
+    La tavola descrive il modello che è stato costruito, non la ricetta che lo
+    genererebbe: senza gli STEP della build non c'è geometria da proiettare, e
+    lo step si ferma dicendolo invece di disegnare un ingombro a memoria.
+    """
+    run = create(client, box_obj)
+    wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/analyze").json()["id"])
+    job = wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/draw").json()["id"])
+    assert job["state"] == "failed"
+    assert "model.step" in job["error"]
+    assert "build" in job["error"]
+
+
+@needs_freecad
+def test_tavola_completa_dopo_la_build(client, box_obj):
+    """La tavola è una tavola: cornice, cartiglio, viste quotate, assonometria."""
+    run = create(client, box_obj)
+    wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/analyze").json()["id"])
+    job = wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/build").json()["id"])
+    assert job["state"] == "succeeded", job["error"]
+    job = wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/draw").json()["id"])
+    assert job["state"] == "succeeded", job["error"]
+
+    # Un foglio d'assieme, uno per corpo, uno di registro: mai meno di tre.
+    assert job["result"]["metrics"]["fogli"] >= 3
+    artifacts = {a["path"] for a in client.get(f"/api/runs/{run['id']}/artifacts").json()}
+    assert {"drawing.pdf", "drawing.dxf", "drawing_p1.svg"} <= artifacts
+
+    svg = client.get(f"/api/runs/{run['id']}/artifacts/drawing_p1.svg").text
+    assert svg.startswith("<svg")
+    assert "ASSONOMETRIA ISOMETRICA" in svg
+    assert "PIANTA" in svg and "PROSPETTO FRONTALE" in svg
+    assert "MODELLO RICOSTRUITO DALLA MESH" in svg          # cartiglio
+
+    # Le quote della tavola sono quelle del registro, e il registro è in tavola.
+    fogli = sorted(p for p in artifacts if p.startswith("drawing_p"))
+    registro = client.get(f"/api/runs/{run['id']}/artifacts/{fogli[-1]}").text
+    assert "REGISTRO DELLE QUOTE" in registro
+    assert "c1_ingombro_x" in registro
 
 
 def test_la_decisione_fermati_blocca_la_ricetta(client, tmp_path_factory):

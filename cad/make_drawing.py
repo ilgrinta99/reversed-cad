@@ -9,54 +9,40 @@ cad/draft2d.py, perche' in modalita' headless TechDraw non puo' disegnare le quo
 (la loro grafica sta nel lato GUI). Le viste sono quindi TechDraw a tutti gli effetti,
 mentre l'impaginazione e la quotatura sono nostre.
 
-Uscite: output/drawing.pdf (3 fogli A3), output/drawing.dxf, output/drawing_p*.svg
+Uscite: output/drawing.pdf (4 fogli A3), output/drawing.dxf, output/drawing_p*.svg
+Il quarto foglio e' l'assonometria isometrica: assieme, scatola e coperchio.
 """
 import os, sys, math, json
 
 import FreeCAD as App
 import Part
-import TechDraw
-from FreeCAD import Vector, Rotation, Placement
+from FreeCAD import Vector
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, 'cad'))
 import draft2d as D
+# La proiezione con rimozione delle linee nascoste e' generica e vive in core/:
+# la usa anche la tavola del percorso automatico. Qui restano l'impaginazione e
+# le quote, che del TAISER sanno tutto.
+from core.drafting import hlr
+from core.drafting.layout import ISOMETRICA, testo_scala
 
 # Percorsi configurabili: vedi cad/build_model.py e docs/CONVENTIONS.md.
 P = json.load(open(os.environ.get('TAISER_PARAMS', os.path.join(ROOT, 'cad', 'params.json'))))
 OUT = os.environ.get('TAISER_OUT', os.path.join(ROOT, 'output'))
 SCALA = 2.0
+SCALA_ISO = 2.0
 A3 = (420.0, 297.0)
+
+proietta = hlr.proietta
+sezione = hlr.sezione
 
 
 # ------------------------------------------------------------ proiezione
-def mat_vista(u, w):
-    """Matrice mondo -> vista. u = destra nel disegno, w = alto; n = u x w = verso l'osservatore."""
-    u = Vector(*u); w = Vector(*w); n = u.cross(w)
-    return App.Matrix(u.x, u.y, u.z, 0,
-                      w.x, w.y, w.z, 0,
-                      n.x, n.y, n.z, 0,
-                      0, 0, 0, 1)
-
-
-def ruota_per_vista(shape, u, w):
-    """Copia del solido ruotata perche' la direzione di vista diventi +Z."""
-    s = shape.copy()
-    s.transformShape(mat_vista(u, w))
-    return s
-
-
-def proietta(shape, u, w):
-    """Restituisce (visibili, nascosti) come liste di Edge 2D nel piano XY."""
-    s = ruota_per_vista(shape, u, w)
-    g = TechDraw.project(s, Vector(0, 0, 1))
-    vis = [e for i in (0, 1, 3) if i < len(g) for e in g[i].Edges]
-    nas = [e for i in (2,) if i < len(g) for e in g[i].Edges]
-    return vis, nas
-
-
-def disegna_edges(f, edges, T, stile, defl=0.03):
+def disegna_edges(f, edges, T, stile, defl=0.03, scala=None):
     """Riversa gli Edge 2D nel foglio applicando la trasformazione carta T."""
+    scala = SCALA if scala is None else scala
     for e in edges:
         nome = type(e.Curve).__name__
         if nome in ('Line', 'LineSegment') and len(e.Vertexes) == 2:
@@ -64,7 +50,7 @@ def disegna_edges(f, edges, T, stile, defl=0.03):
             f.linea(a[0], a[1], b[0], b[1], stile)
         elif nome == 'Circle':
             c = e.Curve
-            ctr = T(c.Center); r = c.Radius * SCALA
+            ctr = T(c.Center); r = c.Radius * scala
             if e.isClosed() or abs(e.LastParameter - e.FirstParameter) > 2 * math.pi - 1e-6:
                 f.cerchio(ctr[0], ctr[1], r, stile)
             else:
@@ -78,33 +64,15 @@ def disegna_edges(f, edges, T, stile, defl=0.03):
             f.polilinea([T(p) for p in pts], stile)
 
 
-def trasf(cx_carta, cy_carta, cx_mod=0.0, cy_mod=0.0):
+def trasf(cx_carta, cy_carta, cx_mod=0.0, cy_mod=0.0, scala=None):
     """Model (mm) -> carta (mm), con la scala di tavola."""
+    s = SCALA if scala is None else scala
+
     def T(p):
         x = p[0] if not hasattr(p, 'x') else p.x
         y = p[1] if not hasattr(p, 'x') else p.y
-        return (cx_carta + (x - cx_mod) * SCALA, cy_carta + (y - cy_mod) * SCALA)
+        return (cx_carta + (x - cx_mod) * s, cy_carta + (y - cy_mod) * s)
     return T
-
-
-def sezione(shape, u, w, punto, normale):
-    """Taglia il solido col semispazio n.p >= d e restituisce (solido, poligoni sezione)."""
-    n = Vector(*normale); n.normalize()
-    d = n.dot(Vector(*punto))
-    big = Part.makeBox(500, 500, 500, Vector(-250, -250, 0))
-    big.Placement = Placement(n * d, Rotation(Vector(0, 0, 1), n))
-    resto = shape.cut(big)
-    # facce di taglio: quelle giacenti sul piano
-    polys = []
-    for fa in resto.Faces:
-        try:
-            nn = fa.normalAt(*fa.Surface.parameter(fa.CenterOfMass))
-        except Exception:
-            continue
-        if abs(abs(nn.dot(n)) - 1.0) < 1e-4 and abs(n.dot(fa.CenterOfMass) - d) < 1e-4:
-            for wi in fa.Wires:
-                polys.append(wi.discretize(Deflection=0.05))
-    return resto, polys
 
 
 # ------------------------------------------------------------ cartiglio
@@ -162,6 +130,9 @@ def linea_di_sezione(f, x1, y1, x2, y2, lettera, verso=1):
 
 doc = App.openDocument(os.path.join(OUT, 'taiser.FCStd'))
 SCATOLA = doc.getObject('Scatola').Shape
+# Nel documento il coperchio sta gia' in posizione di montaggio: l'assieme lo usa
+# com'e', i fogli del pezzo singolo lo riportano a terra.
+ASSIEME = Part.makeCompound([SCATOLA, doc.getObject('Coperchio').Shape])
 COPERCHIO = doc.getObject('Coperchio').Shape.copy()
 COPERCHIO.translate(Vector(0, 0, -P['scatola']['corpo']['H']))
 
@@ -177,28 +148,92 @@ VISTE = {                                    # nome -> (u, w)
     'pianta':    ((1, 0, 0), (0, 1, 0)),     # osservatore in +Z
     'prospetto': ((1, 0, 0), (0, 0, 1)),     # osservatore in -Y
     'laterale':  ((0, 1, 0), (0, 0, 1)),     # osservatore in +X
+    'iso':       ISOMETRICA,                 # osservatore in (1, -1, 1)
 }
 
 
-def vista(f, shape, nome_vista, T, sez=None, nascosti=True, cupola=False):
+def vista(f, shape, nome_vista, T, sez=None, nascosti=True, cupola=False, scala=None):
     """Proietta shape nella vista indicata e la disegna sul foglio."""
     u, w = VISTE[nome_vista]
     corpo = shape
     polys2d = []
     if sez is not None:
         punto, normale = sez
-        corpo, polys = sezione(shape, u, w, punto, normale)
-        m = mat_vista(u, w)
+        corpo, polys = sezione(shape, punto, normale)
+        m = hlr.mat_vista(u, w)
         polys2d = [[T(m.multiply(q)) for q in poly] for poly in polys]
     vis, nas = proietta(corpo, u, w)
     if polys2d:
         f.tratteggio(polys2d, passo=1.6, ang=45.0)
     if nascosti:
-        disegna_edges(f, nas, T, 'nascosto')
-    disegna_edges(f, vis, T, 'contorno')
+        disegna_edges(f, nas, T, 'nascosto', scala=scala)
+    disegna_edges(f, vis, T, 'contorno', scala=scala)
     if cupola:
         silhouette_cupola(f, nome_vista, T)
     return polys2d
+
+
+def assonometria(f, shape, cx, cy, etichetta_testo, scala=SCALA_ISO, nascosti=False,
+                 cupola=False):
+    """Assonometria isometrica centrata sul proprio ingombro proiettato.
+
+    Non e' una vista di misura — non si quota — ma e' quella che fa capire in un
+    colpo d'occhio che pezzo si sta guardando, e per questo sta in tavola.
+    """
+    u, w = VISTE['iso']
+    vis, nas = proietta(shape, u, w)
+    xs, ys = [], []
+    for e in vis:
+        for v in e.Vertexes:
+            xs.append(v.Point.x); ys.append(v.Point.y)
+    cx_mod = (min(xs) + max(xs)) / 2.0 if xs else 0.0
+    cy_mod = (min(ys) + max(ys)) / 2.0 if ys else 0.0
+    T = trasf(cx, cy, cx_mod, cy_mod, scala=scala)
+    if nascosti:
+        disegna_edges(f, nas, T, 'nascosto', scala=scala)
+    disegna_edges(f, vis, T, 'contorno', scala=scala)
+    if cupola:
+        silhouette_cupola_obliqua(f, u, w, T)
+    basso = cy - ((max(ys) - min(ys)) / 2.0 if ys else 0.0) * scala
+    etichetta(f, cx, basso - 10.0, '%s  %s' % (etichetta_testo, testo_scala(scala)))
+    return (max(xs) - min(xs) if xs else 0.0, max(ys) - min(ys) if ys else 0.0)
+
+
+def silhouette_cupola_obliqua(f, u, w, T, n=120, stile='contorno'):
+    """Silhouette della cupola per una direzione di vista qualunque.
+
+    In assonometria le tre curve chiuse di `silhouette_cupola` non servono: la
+    direzione non e' un asse. La silhouette e' pero' ancora analitica. Scritto il
+    paraboloide come
+
+        P(v, s) = (x0 + a(1 - v^2 - s^2),  cy + b v,  cz + c s)
+
+    la normale e' proporzionale a (1/a, 2v/b, 2s/c), e il contorno apparente e'
+    dove la normale e' ortogonale alla direzione di vista d: una *retta* nel piano
+    (v, s), che va poi intersecata col disco unitario — fuori dal disco la cupola
+    non c'e' piu', c'e' il bordo ellittico, che TechDraw disegna gia'.
+    """
+    d = App.Vector(*u).cross(App.Vector(*w))
+    d.normalize()
+    x0, a, b, c = CU['x0'], CU['a'], CU['b'], CU['c']
+    cy, cz = CU['cy'], CU['cz']
+    A, B, C = 2.0 * a * d.y / b, 2.0 * a * d.z / c, -d.x
+    norma2 = A * A + B * B
+    if norma2 < 1e-12:
+        return                                   # vista lungo l'asse: solo il bordo
+    dist2 = C * C / norma2
+    if dist2 >= 1.0:
+        return                                   # la retta non taglia il disco
+    semi = math.sqrt(1.0 - dist2)
+    vx, sx = A * C / norma2, B * C / norma2      # piede della perpendicolare
+    dv, ds = -B / math.sqrt(norma2), A / math.sqrt(norma2)
+    pts = []
+    for i in range(n + 1):
+        k = -semi + 2.0 * semi * i / n
+        v, s = vx + dv * k, sx + ds * k
+        p = App.Vector(x0 + a * (1.0 - v * v - s * s), cy + b * v, cz + c * s)
+        pts.append(T((p.dot(App.Vector(*u).normalize()), p.dot(App.Vector(*w).normalize()))))
+    f.polilinea(pts, stile)
 
 
 def silhouette_cupola(f, nome_vista, T, n=140, stile='contorno'):
@@ -239,7 +274,7 @@ def confronto_tavola():
 # -------------------------------------------------------------- foglio 1
 f1 = D.Foglio(*A3)
 cornice_e_cartiglio(
-    f1, 'CONTENITORE TAISER', 'Scatola - viste ortogonali', 1, 3,
+    f1, 'CONTENITORE TAISER', 'Scatola - viste ortogonali', 1, 4,
     note=('Modello parametrico ricostruito dalla mesh OBJ Tinkercad; la tavola TinkerCAD',
           'di partenza riportava solo i 3 ingombri esterni (80 x 46 x 27).',
           'Tratteggio fine = spigoli nascosti.  Linea mista rossa = assi e piani di sezione.'))
@@ -278,7 +313,7 @@ linea_di_sezione(f1, p1[0], p1[1], p2[0], p2[1], 'B')
 ZC = P['scatola']['fori_cupola']['A']['punto'][2]
 f2 = D.Foglio(*A3)
 cornice_e_cartiglio(
-    f2, 'CONTENITORE TAISER', 'Scatola - sezioni', 2, 3,
+    f2, 'CONTENITORE TAISER', 'Scatola - sezioni', 2, 4,
     note=('A-A: piano verticale longitudinale Y=0.   B-B: piano verticale trasversale X=0.',
           'C-C: piano orizzontale Z=%.3f, sull\'asse dei due fori della cupola.' % ZC,
           'Il contorno della cupola e\' la curva analitica del paraboloide (vedi riquadro).'))
@@ -341,7 +376,7 @@ for i, (t, grassetto) in enumerate(righe):
 # -------------------------------------------------------------- foglio 3
 f3 = D.Foglio(*A3)
 cornice_e_cartiglio(
-    f3, 'CONTENITORE TAISER', 'Coperchio - viste e sezione', 3, 3,
+    f3, 'CONTENITORE TAISER', 'Coperchio - viste e sezione', 3, 4,
     note=('Lunghezza 73.86 e non 74.00 come da tavola TinkerCAD: nella mesh il coperchio',
           'era scalato di 74/73.86. Riportandolo a 73.86 le 4 asole cadono esattamente',
           'sui fori delle colonnine della scatola (+/-33.0425). Vedi docs/lost+found_lost+found_design.md 5-F.'))
@@ -399,8 +434,25 @@ for i, (k, lab, tav, mod) in enumerate(righe_tab):
     f3.testo(tx + 156, y, '%+.3f' % (mod - tav), 2.4,
              st='contorno' if abs(mod - tav) < 0.005 else 'asse', anc='end')
 
+# -------------------------------------------------------------- foglio 4
+# L'assonometria non porta quote: porta il colpo d'occhio. Le tre viste
+# ortogonali dicono tutto sulle misure e niente sulla forma d'insieme — chi
+# guarda una tavola per la prima volta parte da qui e poi va a cercare i numeri.
+f4 = D.Foglio(*A3)
+cornice_e_cartiglio(
+    f4, 'CONTENITORE TAISER', 'Assonometria isometrica', 4, 4,
+    note=('Assonometria isometrica: osservatore in (1, -1, 1), asse Z del modello verticale.',
+          'Vista di orientamento, non di misura: le quote stanno sui fogli 1, 2 e 3.',
+          'Coperchio in posizione di montaggio, appoggiato sul bordo della scatola.'))
+
+assonometria(f4, ASSIEME, 280.0, 175.0, 'ASSIEME  scatola + coperchio', scala=2.0,
+             cupola=True)
+assonometria(f4, SCATOLA, 95.0, 220.0, 'SCATOLA', scala=1.0, cupola=True)
+assonometria(f4, COPERCHIO, 95.0, 120.0, 'COPERCHIO', scala=1.0)
+
+
 # -------------------------------------------------------------- uscite
-fogli = [f1, f2, f3]
+fogli = [f1, f2, f3, f4]
 D.scrivi_pdf(fogli, os.path.join(OUT, 'drawing.pdf'), 'Contenitore TAISER')
 D.scrivi_dxf(fogli, os.path.join(OUT, 'drawing.dxf'))
 for i, f in enumerate(fogli, 1):
