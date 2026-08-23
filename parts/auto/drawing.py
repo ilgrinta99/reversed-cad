@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from core.drafting import layout, tavola
+from core.drafting import layout, patterns, tavola
 from core.drafting.layout import ISOMETRICA
 from core.provenance import Registry
 
@@ -334,6 +334,9 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
             "o approvata.",
             "Tratteggio fine = spigoli nascosti.  Linea mista rossa = tracce dei "
             "piani di sezione."]
+    if any("PCD" in riga or riga.startswith("passo") for r in richiami for riga in r.righe):
+        note.append("Nei richiami «N×» il diametro è del registro; Ø PCD e passo "
+                    "sono ricavati dai centri dei fori misurati.")
     if sagome:
         note.append("Linea rossa a tratti = profilo della mesh sezionata a metà del corpo.")
     return tavola.FoglioSpec(
@@ -343,28 +346,103 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
     )
 
 
+#: Vista su cui si legge un foro, dal suo asse: la perpendicolare all'asse.
+_VISTA_DI_ASSE = {"Z": "pianta", "Y": "prospetto", "X": "laterale"}
+
+
 def _richiami_fori(key: str, body: dict, valori: dict[str, float]):
-    """Un richiamo per foro, sulla vista perpendicolare al suo asse."""
-    vista_di_asse = {"Z": "pianta", "Y": "prospetto", "X": "laterale"}
+    """Richiami dei fori, con i pattern collassati in un richiamo solo.
+
+    Fori uguali che formano un cerchio (bolt circle) o una fila a passo costante
+    si quotano una volta — «N× Ød su Ø(pcd) PCD», «N× Ød passo p» — invece di
+    ripetere lo stesso richiamo N volte. Diametro e profondità restano quelli del
+    registro; PCD e passo sono ricavati dai centri misurati e dichiarati come tali
+    nella nota del foglio (`_foglio_corpo`). Quando non c'è pattern, ogni foro
+    torna al suo richiamo, identico a prima: una tavola senza pattern non cambia.
+    """
+    records = _record_fori(key, body, valori)
+    consumati: set[int] = set()
+
+    # I pattern si cercano fra fori cilindrici (con diametro) e sulla stessa vista,
+    # cioè con lo stesso asse: fori su assi diversi stanno su viste diverse.
+    for asse in ("Z", "Y", "X"):
+        candidati = [r for r in records if r["asse"] == asse and r["d"] is not None]
+        if len(candidati) < 3:
+            continue
+        fori2d = [patterns.Foro2D(r["punto"][0], r["punto"][1], r["d"] / 2.0, ref=r)
+                  for r in candidati]
+        for pat in patterns.raggruppa_fori(fori2d):
+            if pat.kind == "sparso":
+                continue
+            recs = [f.ref for f in pat.fori]
+            if not _profondita_uniforme(recs):
+                continue  # profondità diverse: non è un foro solo ripetuto
+            yield _richiamo_pattern(pat, recs)
+            consumati.update(id(r) for r in recs)
+
+    # Tutto il resto, foro per foro, nell'ordine originale.
+    for r in records:
+        if id(r) in consumati:
+            continue
+        richiamo = _richiamo_singolo(r)
+        if richiamo is not None:
+            yield richiamo
+
+
+def _record_fori(key: str, body: dict, valori: dict[str, float]) -> list[dict]:
+    """Un dizionario per foro con quel che serve a quotarlo: vista, punto, valori."""
+    records = []
     for i, bore in enumerate(body.get("bores", []), start=1):
         asse = bore.get("axis", "Z")
-        vista = f"{key}_{vista_di_asse.get(asse, 'pianta')}"
-        nome = vista_di_asse.get(asse, "pianta")
-        punto = _punto_vista(nome, bore["center"])
-        d_id, p_id = f"{key}_foro{i}_diametro", f"{key}_foro{i}_profondita"
-        etichetta = []
-        if d_id in valori:
-            etichetta.append(u"foro %d  Ø%s" % (i, _num(valori[d_id])))
-        elif f"{key}_asola{i}_larghezza" in valori:
-            etichetta.append("asola %d  larghezza %s"
-                             % (i, _num(valori[f"{key}_asola{i}_larghezza"])))
-        else:
-            continue
-        if p_id in valori:
-            etichetta.append(f"profondità {_num(valori[p_id])}  asse {asse}")
-        else:
-            etichetta.append(f"asse {asse}")
-        yield tavola.Richiamo(vista, punto, (18.0, 16.0), tuple(etichetta))
+        nome = _VISTA_DI_ASSE.get(asse, "pianta")
+        records.append({
+            "i": i, "asse": asse,
+            "vista": f"{key}_{nome}",
+            "punto": _punto_vista(nome, bore["center"]),
+            "d": valori.get(f"{key}_foro{i}_diametro"),
+            "w": valori.get(f"{key}_asola{i}_larghezza"),
+            "p": valori.get(f"{key}_foro{i}_profondita"),
+        })
+    return records
+
+
+def _profondita_uniforme(recs: list[dict]) -> bool:
+    """I fori del pattern hanno la stessa profondità (o tutti nessuna misura)."""
+    def chiave(r):
+        return None if r["p"] is None else round(float(r["p"]), 3)
+    return len({chiave(r) for r in recs}) == 1
+
+
+def _riga_profondita(r: dict) -> str:
+    return (f"profondità {_num(r['p'])}  asse {r['asse']}"
+            if r["p"] is not None else f"asse {r['asse']}")
+
+
+def _richiamo_singolo(r: dict) -> tavola.Richiamo | None:
+    """Il richiamo di un singolo foro (o asola). Testo identico alla versione storica."""
+    etichetta = []
+    if r["d"] is not None:
+        etichetta.append(u"foro %d  Ø%s" % (r["i"], _num(r["d"])))
+    elif r["w"] is not None:
+        etichetta.append("asola %d  larghezza %s" % (r["i"], _num(r["w"])))
+    else:
+        return None
+    etichetta.append(_riga_profondita(r))
+    return tavola.Richiamo(r["vista"], r["punto"], (18.0, 16.0), tuple(etichetta))
+
+
+def _richiamo_pattern(pat: patterns.Pattern, recs: list[dict]) -> tavola.Richiamo:
+    """Il richiamo che quota un intero pattern su un foro rappresentativo."""
+    r0 = recs[0]
+    diametro = _num(r0["d"])
+    if pat.kind == "bolt_circle":
+        testa = "%d× foro Ø%s" % (pat.conteggio, diametro)
+        mezzo = "equidistanti su Ø%s PCD" % _num(pat.pcd)
+    else:  # passo
+        testa = "%d× foro Ø%s" % (pat.conteggio, diametro)
+        mezzo = "passo %s" % _num(pat.passo)
+    return tavola.Richiamo(r0["vista"], r0["punto"], (18.0, 16.0),
+                           (testa, mezzo, _riga_profondita(r0)))
 
 
 # -- foglio delle sezioni ---------------------------------------------------

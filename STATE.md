@@ -126,6 +126,27 @@ gruppi di spigoli e il quarto — le tangenti *nascoste* — finiva fra i visibi
 Sulla pianta del TAISER erano due lunghe diagonali piene attraverso la cupola.
 Ora sono tratteggiate, come devono essere.
 
+### Quotatura consapevole dei pattern di fori
+
+`core/drafting/patterns.py` (pura geometria, nessun pezzo) riconosce quando fori
+uguali su una vista formano un **cerchio di fori** (equidistanti su un PCD) o una
+**fila a passo costante**, e `parts/auto/drawing.py` li quota una volta —
+«N× Ø d equidistanti su Ø(pcd) PCD», «N× Ø d passo p» — invece di ripetere N
+richiami identici. Fuori dal pattern ogni foro torna al suo richiamo: una tavola
+senza pattern non cambia di una virgola (i test lo bloccano).
+
+Spunto preso da `neka-nat/cad-3dto2d` (`annotations/planner.py`), riscritto nel
+nostro idiom e adattato al nostro modello mesh→ricetta. Il resto di quel repo —
+proiezione, sezioni, assonometria, tre formati d'uscita — lo copriamo già, spesso
+con più cose (assonometria, PDF multipagina, sovrapposizione del profilo mesh).
+L'altro repo indicato, `mlightcad/awesome-cad`, è solo un indice di progetti: non
+c'era codice da integrare.
+
+**Provenance:** il diametro resta quello del registro (misurato o approvato). PCD
+e passo sono conseguenze geometriche dei centri *già misurati*, ricavati solo per
+la nota e dichiarati come tali sul foglio — la stessa scelta già fatta per gli
+ingombri d'assieme misurati sul solido. Nessun numero nuovo entra nel modello.
+
 ### Quattro formati di mesh in ingresso (FASE 9)
 
 `core/mesh/loader.py` è l'unico ingresso: sceglie il lettore dal suffisso e non

@@ -4,6 +4,8 @@ Tre pezzi, e il confine fra loro conta:
 
 - `sheet.py` — le primitive e i tre backend (SVG, PDF, DXF). Nessuna dipendenza.
 - `layout.py` — cornice, cartiglio, scale normalizzate, disposizione delle viste.
+- `patterns.py` — riconoscimento di pattern di fori (cerchio, passo) per quotare
+  N fori uguali una volta sola. Pura geometria, nessun pezzo, nessuna dipendenza.
 - `tavola.py` — il compositore: una specifica dichiarativa diventa fogli.
 - `hlr.py` + `project_script.py` — l'unico punto che tocca FreeCAD, per la
   proiezione con rimozione delle linee nascoste. Girano dentro FreeCAD e passano
@@ -13,4 +15,4 @@ Tre pezzi, e il confine fra loro conta:
 package deve restare importabile dal backend web.
 """
 
-from core.drafting import layout, sheet, tavola  # noqa: F401
+from core.drafting import layout, patterns, sheet, tavola  # noqa: F401
