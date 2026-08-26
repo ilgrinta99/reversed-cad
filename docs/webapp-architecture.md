@@ -155,6 +155,39 @@ mostra come decisione («costruisci senza, lo scostamento resterà misurato» /
 semplificazione. Una superficie libera approssimata in silenzio con una primitiva
 sarebbe una quota inventata: è la stessa regola, applicata alle forme.
 
+**…e le dichiara tutte, non solo quelle che sapeva già di non saper fare.** Fino
+alla prova su una mesh con una cupola forata, «dichiarare» valeva solo per le
+superfici libere. Tre famiglie di superfici che `patches.py` riconosce da sempre
+non le leggeva nessuno e sparivano fra l'analisi e la tavola:
+
+| Superficie | Dove si perdeva | Dove sta ora |
+|---|---|---|
+| calotta sferica | nessuno leggeva le patch `sphere` | feature `sfera`, con raggio e centro |
+| cilindro ad asse obliquo | `_read_holes` lo scartava con un commento che prometteva il contrario | feature `cilindro` |
+| arco parziale spaiato | finiva in `a.arcs` e da lì in nessuna feature | feature `arco`, se non è il raccordo che la build costruisce davvero |
+
+Sulla mesh del TAISER le feature dichiarate come non costruite erano 11; sono 27.
+Sulla mesh di prova che ha fatto emergere il difetto, 9 → 27. Ogni feature non
+costruita porta adesso anche `origine_*`, `centro_*` e l'ingombro:
+senza una posizione la tavola può solo scrivere «c'è una superficie libera», e
+chi legge non sa dove guardare.
+
+**La tavola dice dove.** `parts/auto/drawing.py` disegna l'*impronta* di ogni
+superficie omessa — il rettangolo d'ingombro, non il contorno vero, che
+equivarrebbe a dire che il modello la contiene — sulle tre viste ortogonali del
+corpo, in stile e layer propri (`omesso`, viola, `OMESSO` in DXF: si spegne con un
+clic come il profilo della mesh). Le prime cinque per area portano anche un
+richiamo con nome e misura, incolonnato fuori dalla vista perché due impronte
+vicine non diano due testi sovrapposti. Il foglio del registro le censisce tutte
+per corpo e per tipo.
+
+E le censisce guardando la **ricetta**, non il flag `buildable`: `buildable` dice
+se il repertorio *saprebbe* costruire una feature, non se l'ha costruita. Con la
+decisione «asole = fori» un'asola entra nel solido pur restando `buildable=False`,
+e con «corpi = principale» un prisma perfettamente costruibile resta fuori.
+Elencare fra le omesse una feature che il solido contiene è la stessa bugia di
+tacerne una che non contiene, al contrario.
+
 ## 4. FreeCAD headless: le regole non negoziabili del runner
 
 Raccolte dal `BUILD-LOG` dell'utente. Il modulo `core/freecad/runner.py` le

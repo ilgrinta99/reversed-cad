@@ -27,6 +27,10 @@ STILI = {
     # Geometria di confronto, non del modello: il profilo vero della mesh.
     # Su layer proprio, cosi' in CAD si spegne con un clic.
     'riferimento':((0.80, 0.25, 0.15), 0.18, (1.2, 0.8), 'RIFERIMENTO', 30),
+    # Impronta di una superficie che la mesh ha e il modello no. Non e' geometria
+    # del modello ne' profilo della mesh: e' la dichiarazione di un'assenza, e ha
+    # un colore e un layer che non si confondono con nessuna delle due.
+    'omesso':    ((0.45, 0.10, 0.65), 0.25, (3.0, 1.0, 0.6, 1.0), 'OMESSO', 6),
 }
 ALTEZZA_TESTO = 2.5          # mm
 FRECCIA_L, FRECCIA_W = 3.0, 1.0

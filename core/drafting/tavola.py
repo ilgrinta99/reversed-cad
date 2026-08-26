@@ -86,11 +86,19 @@ class Sagoma:
     Non è geometria del modello: serve a far vedere, sulla tavola stessa, di
     quanto il solido ricostruito si scosta dal pezzo reale. Ha uno stile e un
     layer suoi perché non si confonda con gli spigoli.
+
+    Due usi, e due stili: il profilo vero della mesh sezionata (`riferimento`) e
+    l'impronta di una superficie che la mesh ha e il modello no (`omesso`). Il
+    primo dice «il solido devia di tanto», il secondo «qui non c'è niente, e
+    invece qualcosa c'era».
     """
 
     vista: str
     punti: tuple[tuple[float, float], ...]
     chiusa: bool = True
+    #: `riferimento` = profilo vero della mesh; `omesso` = impronta di una
+    #: superficie che la mesh ha e il modello no. Due assenze diverse, due stili.
+    stile: str = 'riferimento'
 
 
 @dataclass(frozen=True)
@@ -203,7 +211,7 @@ def componi_foglio(spec: FoglioSpec, proiezioni: dict, n: int, tot: int) -> Fogl
         if s.vista not in per_id:
             continue
         T, _ = T_di(s.vista)
-        f.polilinea([T(p) for p in s.punti], 'riferimento', chiusa=s.chiusa)
+        f.polilinea([T(p) for p in s.punti], s.stile, chiusa=s.chiusa)
     for r in spec.richiami:
         if r.vista not in per_id:
             continue

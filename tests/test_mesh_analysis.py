@@ -8,6 +8,7 @@ atteso è verificabile leggendo il test.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -210,3 +211,78 @@ def test_segmentazione_riconosce_piani_e_cilindri(box_obj: Path):
     assert body.closed
     assert len(body.of_kind("plane")) == 6
     assert body.volume == pytest.approx(40.0 * 25.0 * 12.0)
+
+
+def sphere_obj(path: Path, centro: tuple[float, float, float], raggio: float,
+               n: int = 24) -> Path:
+    """Scrive un OBJ: una calotta sferica chiusa da un disco piano.
+
+    Serve una superficie che `patches.py` riconosce da sempre come sfera e che il
+    ricostruttore non sa costruire: è il caso in cui l'analisi deve *dichiarare*
+    invece di tacere.
+    """
+    cx, cy, cz = centro
+    lines = [f"v {cx} {cy} {cz + raggio}"]                     # polo
+    anelli = 4
+    for i in range(1, anelli + 1):
+        phi = (math.pi / 2.0) * i / anelli                     # 0 = polo, π/2 = equatore
+        for k in range(n):
+            th = 2.0 * math.pi * k / n
+            lines.append(f"v {cx + raggio * math.sin(phi) * math.cos(th)} "
+                         f"{cy + raggio * math.sin(phi) * math.sin(th)} "
+                         f"{cz + raggio * math.cos(phi)}")
+    base = 1 + anelli * n + 1
+    lines.append(f"v {cx} {cy} {cz}")                          # centro del disco
+    faces = []
+    for k in range(n):                                         # calotta del polo
+        faces.append((1, 2 + k, 2 + (k + 1) % n))
+    for i in range(anelli - 1):                                # fasce
+        a, b = 2 + i * n, 2 + (i + 1) * n
+        for k in range(n):
+            k2 = (k + 1) % n
+            faces.append((a + k, b + k, b + k2))
+            faces.append((a + k, b + k2, a + k2))
+    ultimo = 2 + (anelli - 1) * n
+    for k in range(n):                                         # disco di chiusura
+        faces.append((base, ultimo + (k + 1) % n, ultimo + k))
+    path.write_text("\n".join(lines + [f"f {a} {b} {c}" for a, b, c in faces]) + "\n")
+    return path
+
+
+def test_una_calotta_sferica_viene_dichiarata_non_taciuta(tmp_path: Path):
+    """La sfera è riconosciuta da `patches.py` e non è nel repertorio del builder.
+
+    Prima nessuno la leggeva: spariva fra l'analisi e la tavola senza lasciare
+    traccia. Ora è una feature non costruibile, con raggio, ingombro e posizione —
+    perché una feature taciuta è peggio di una feature non costruita.
+    """
+    analysis = analyze(sphere_obj(tmp_path / "cupola.obj", (10.0, 4.0, 0.0), 6.0))
+    sfere = [f for f in analysis.features if f.kind == "sfera"]
+    assert sfere, "la calotta non compare fra le feature"
+    for sfera in sfere:
+        assert not sfera.buildable
+        # Il raggio è quello vero: la calotta è misurata, non stimata.
+        assert sfera.params["raggio"] == pytest.approx(6.0, abs=0.05)
+    # La posizione è la novità che permette alla tavola di disegnarne l'impronta.
+    grande = max(sfere, key=lambda f: f.params["area"])
+    assert grande.params["centro_x"] == pytest.approx(10.0, abs=0.05)
+    assert grande.params["centro_y"] == pytest.approx(4.0, abs=0.05)
+    assert 0.0 < grande.params["dx"] <= 12.0 + 1e-6
+    for chiave in ("origine_x", "origine_y", "origine_z", "dx", "dy", "dz", "area"):
+        assert chiave in grande.params
+
+
+def test_ogni_feature_non_costruibile_porta_la_sua_posizione():
+    """Nessuna superficie dichiarata resta senza un dove: la tavola non saprebbe dove guardare."""
+    mesh = Path("input/model.obj")
+    if not mesh.is_file():
+        pytest.skip("input/model.obj non disponibile")
+    analysis = analyze(mesh)
+    omesse = [f for f in analysis.features
+              if f.kind in ("libera", "sfera", "cilindro", "arco")]
+    assert omesse, "la mesh del progetto ha superfici fuori dal repertorio"
+    for feature in omesse:
+        assert not feature.buildable
+        for chiave in ("origine_x", "origine_y", "origine_z", "dx", "dy", "dz",
+                       "centro_x", "centro_y", "centro_z", "area"):
+            assert chiave in feature.params, f"{feature.label} senza «{chiave}»"

@@ -3,8 +3,9 @@
 **Fase corrente:** FASI 1–5 completate. FASE 6 (web app) in piedi. FASE 7: l'analisi
 non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la tavola
 è una tavola anche lì, con viste proiettate, sezioni, quote e assonometria.
-FASE 9: la mesh può essere OBJ, STL, PLY o WRL.
-**Aggiornato:** 2026-08-20
+FASE 9: la mesh può essere OBJ, STL, PLY o WRL. FASE 10: quello che il modello
+non porta si vede sulla tavola, con posizione e ingombro.
+**Aggiornato:** 2026-08-26
 
 ## Fatto
 - [x] FASE 1 — briefing: quote della tavola, misura della mesh, discrepanze D1–D8, ambiguità A–G
@@ -20,6 +21,8 @@ FASE 9: la mesh può essere OBJ, STL, PLY o WRL.
 - [x] FASE 8 — tavola vera anche per il percorso automatico: motore di disegno in
       `core/drafting/`, viste proiettate da TechDraw, assonometria isometrica
 - [x] FASE 9 — quattro formati di ingresso: OBJ, STL, PLY, WRL
+- [x] FASE 10 — niente sparisce in silenzio: ogni superficie fuori dal repertorio
+      è dichiarata con posizione e ingombro, e ha la sua impronta sulle viste
 
 ## Uscite
 | file | contenuto |
@@ -184,6 +187,40 @@ stessi ingombri e le stesse 41 quote. STL e PLY divergono di 2·10⁻⁵ mm al m
 — è la precisione singola dei due formati, due ordini di grandezza sotto la
 tolleranza con cui il registro distingue due numeri. Da un STL la pipeline gira
 intera e produce gli stessi 11 fogli.
+
+### Quello che il modello non porta si vede sulla tavola (FASE 10)
+
+Prova su una mesh nuova — una scatola con cupola forata, boccole e tasche sul
+coperchio — e il difetto è saltato fuori subito: sulla tavola quegli elementi non
+c'erano *e niente diceva che ci fossero stati*. Il solido era corretto rispetto al
+repertorio del ricostruttore; la tavola era muta rispetto al pezzo.
+
+Tre cause distinte, tutte e tre chiuse:
+
+1. **Superfici riconosciute e mai lette.** `patches.py` riconosce da sempre le
+   sfere; nessuno le leggeva. `_read_holes` scartava i cilindri ad asse obliquo
+   con un commento che prometteva «resta fra le feature» — e non ci restava. Gli
+   archi parziali spaiati finivano in `a.arcs` e da lì in niente. Ora ogni
+   superficie fuori dal repertorio è una feature dichiarata: `sfera`, `cilindro`,
+   `arco`, accanto a `libera`. Sul TAISER le dichiarate passano da 11 a 27, sulla
+   mesh di prova da 9 a 27. Un arco che *è* il raccordo che la build costruisce
+   davvero non viene dichiarato omesso: sarebbe la bugia opposta.
+2. **Dichiarate senza un dove.** Le feature non costruibili portavano area e
+   ingombro, non la posizione: la tavola poteva scrivere «c'è una superficie
+   libera» e basta. Ora portano `origine_*` e `centro_*`, e le viste ortogonali di
+   ogni corpo ne disegnano l'**impronta** — il rettangolo d'ingombro, in viola, su
+   layer `OMESSO` — con un richiamo per le prime cinque per area, incolonnato
+   fuori dalla vista. Il rettangolo e non il contorno vero: ricalcare il contorno
+   di una superficie libera equivarrebbe a dire che il modello la contiene.
+3. **L'elenco del registro mentiva al contrario.** Era costruito su `buildable`,
+   che dice se il repertorio *saprebbe* costruire una feature, non se l'ha
+   costruita: con la decisione «asole = fori» le quattro asole del coperchio
+   erano nel solido *e* nell'elenco delle non ricostruite. Ora l'elenco guarda la
+   ricetta, e censisce per corpo e per tipo invece di troncare a otto voci.
+
+Restano fuori dal repertorio del *costruttore*: la cupola non si costruisce, e non
+la si approssima. La differenza è che adesso la tavola dice dove sta, quanto è
+grande e che il modello non ce l'ha — invece di lasciare il foglio bianco lì.
 
 ### Aperto sulla web app
 1. **Immagine Docker mai costruita davvero.** FreeCAD conda-forge è stato verificato

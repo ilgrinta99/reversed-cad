@@ -50,6 +50,33 @@ ZONA_TABELLA_X, ZONA_TABELLA_W = 200.0, 205.0
 
 ORIGINE = "ricostruzione parametrica dalla mesh"
 
+#: Le feature che l'analisi riconosce ma che il repertorio del ricostruttore non
+#: porta nel solido. Non sono un errore di lettura: sono superfici *misurate* che
+#: il modello non rappresenta, e la tavola le disegna come impronta invece di
+#: lasciare il foglio muto dove il pezzo ha qualcosa.
+KIND_OMESSE = ("libera", "sfera", "cilindro", "arco")
+
+#: Come si nomina, in una nota, ciascuna di quelle superfici.
+NOME_OMESSA = {
+    "libera": "superficie libera",
+    "sfera": "calotta sferica",
+    "cilindro": "cilindro obliquo",
+    "arco": "arco parziale",
+}
+
+#: Sotto questa dimensione sul foglio l'impronta di una superficie omessa è più
+#: piccola del tratto che la disegna: resta nell'elenco del registro, ma non sulle
+#: viste, dove sarebbe una macchia e non un'informazione.
+IMPRONTA_MINIMA_MM = 2.0
+
+#: Quante impronte portano anche il richiamo con il nome. Oltre, il foglio diventa
+#: illeggibile: le altre restano disegnate e numerate, e il registro le elenca tutte.
+MAX_RICHIAMI_OMESSE = 5
+
+#: Due posizioni più vicine di così sono la stessa posizione: serve a riconoscere
+#: se un foro dell'analisi è *quel* foro della ricetta.
+TOLLERANZA_POSIZIONE = 1e-3
+
 
 def sanitize(nome: str) -> str:
     """Stesso nome file che usa `build_script.py` per i corpi singoli."""
@@ -143,6 +170,116 @@ def _punto_vista(nome: str, p) -> tuple[float, float]:
     return (float(p[i]), float(p[j]))
 
 
+# ------------------------------------------------------ superfici non costruite
+
+
+def omesse_del_corpo(analysis: dict, nome_corpo: str) -> list[dict]:
+    """Le superfici che l'analisi ha misurato e il ricostruttore non porta.
+
+    Ordinate per area decrescente: la prima è quella che pesa di più sullo
+    scostamento, ed è quella che merita il richiamo se i richiami finiscono.
+    """
+    out = [f for f in analysis.get("features", [])
+           if f.get("body") == nome_corpo and f.get("kind") in KIND_OMESSE]
+    return sorted(out, key=lambda f: -float(f.get("params", {}).get("area", 0.0)))
+
+
+def _riquadro_omessa(feature: dict) -> tuple[tuple[float, float, float],
+                                             tuple[float, float, float]] | None:
+    """Ingombro 3D di una superficie omessa: (origine, estremo opposto)."""
+    p = feature.get("params", {})
+    try:
+        low = tuple(float(p[f"origine_{a}"]) for a in "xyz")
+        size = tuple(float(p[f"d{a}"]) for a in "xyz")
+    except (KeyError, TypeError, ValueError):
+        return None
+    return low, tuple(l + s for l, s in zip(low, size))
+
+
+def _testo_omessa(indice: int, feature: dict) -> tuple[str, ...]:
+    """Le righe del richiamo: che cos'è, quanto è grande, e che il modello non ce l'ha."""
+    p = feature.get("params", {})
+    nome = NOME_OMESSA.get(feature.get("kind"), feature.get("kind", "?"))
+    misura = f"R{_num(float(p['raggio']))}" if p.get("raggio") is not None else \
+        f"{_num(float(p.get('dx', 0.0)))}×{_num(float(p.get('dy', 0.0)))}×" \
+        f"{_num(float(p.get('dz', 0.0)))}"
+    return (f"{indice}  {nome}  {misura}", "nella mesh, non nel modello")
+
+
+#: Quanto il testo di un richiamo sta fuori dal bordo della vista, e quanto due
+#: richiami in colonna distano fra loro. Millimetri sul foglio, non sul modello.
+MARGINE_RICHIAMO, PASSO_RICHIAMO = 13.0, 7.0
+
+
+def _scostamento_richiamo(punto, box, scala: float, ordine: int,
+                          destra: bool) -> tuple[float, float]:
+    """Il testo va in colonna fuori dalla vista, non a distanza fissa dall'impronta.
+
+    Due impronte vicine di due millimetri, con lo stesso scostamento, danno due
+    testi sovrapposti: a doversi spaziare è la posizione *sul foglio*, non la
+    lunghezza della linea di richiamo. Qui la colonna parte dal bordo alto della
+    vista e scende di un passo per ogni richiamo già uscito da quel lato.
+    """
+    x0, y0, x1, y1 = box
+    bordo = (x1 if destra else x0) - punto[0]
+    return (bordo * scala + (MARGINE_RICHIAMO if destra else -MARGINE_RICHIAMO),
+            (y1 - punto[1]) * scala - PASSO_RICHIAMO * ordine)
+
+
+def _omesse_sulle_viste(key: str, body: dict, omesse: list[dict], scala: float
+                        ) -> tuple[list[tavola.Sagoma], list[tavola.Richiamo]]:
+    """Impronta di ogni superficie omessa sulle tre viste, e il richiamo che la nomina.
+
+    L'impronta è il rettangolo d'ingombro della patch nella vista, non il suo
+    contorno vero: il contorno vero di una superficie libera è la superficie
+    stessa, e ridisegnarla equivarrebbe a dire che il modello la contiene. Il
+    rettangolo dice l'unica cosa onesta — *qui c'è qualcosa che il solido non
+    porta, e occupa tanto così*.
+    """
+    sagome: list[tavola.Sagoma] = []
+    richiami: list[tavola.Richiamo] = []
+    centro = _centro(body)
+    origine = [float(v) for v in body["origin"]]
+    estremo = [o + float(s) for o, s in zip(origine, body["size"])]
+    # Quanti richiami sono già usciti da ogni lato di ogni vista: la colonna dei
+    # testi si conta lì, o due viste lontane sprecherebbero le stesse altezze.
+    per_lato: dict[tuple[str, bool], int] = {}
+    quotati = 0
+    for indice, feature in enumerate(omesse, start=1):
+        riquadro = _riquadro_omessa(feature)
+        if riquadro is None:
+            continue
+        low, high = riquadro
+        disegnate = []
+        for nome in DIREZIONI:
+            (x0, y0), (x1, y1) = _punto_vista(nome, low), _punto_vista(nome, high)
+            if max(x1 - x0, y1 - y0) * scala < IMPRONTA_MINIMA_MM:
+                continue
+            sagome.append(tavola.Sagoma(
+                f"{key}_{nome}", ((x0, y0), (x1, y0), (x1, y1), (x0, y1)),
+                stile='omesso'))
+            # Il richiamo parte dall'angolo dell'impronta rivolto verso l'esterno
+            # del corpo: la linea di richiamo non attraversa la feature che indica.
+            cx, cy = _punto_vista(nome, centro)
+            destra = (x0 + x1) / 2.0 >= cx
+            angolo = (x1 if destra else x0, y1 if (y0 + y1) / 2.0 >= cy else y0)
+            box = _punto_vista(nome, origine) + _punto_vista(nome, estremo)
+            disegnate.append((nome, (x1 - x0) * (y1 - y0), angolo, box, destra))
+        if not disegnate or quotati >= MAX_RICHIAMI_OMESSE:
+            continue
+        # Il richiamo va sulla vista dove l'impronta è più grande: è lì che si
+        # capisce di che cosa si sta parlando.
+        nome, _, angolo, box, destra = max(disegnate, key=lambda d: d[1])
+        ordine = per_lato.get((nome, destra), 0)
+        richiami.append(tavola.Richiamo(
+            f"{key}_{nome}", angolo,
+            _scostamento_richiamo(angolo, box, scala, ordine, destra),
+            _testo_omessa(indice, feature)))
+        per_lato[(nome, destra)] = ordine + 1
+        quotati += 1
+    return sagome, richiami
+
+
 # ---------------------------------------------------------------- fogli
 
 
@@ -156,11 +293,13 @@ def fogli(recipe: dict, analysis: dict, registry: Registry, proiezioni: dict,
     out = [_foglio_assieme(recipe, proiezioni, sorgente)]
     for body in recipe["bodies"]:
         out.append(_foglio_corpo(body, valori, proiezioni, sorgente,
-                                 contorni.get(body["key"], {})))
+                                 contorni.get(body["key"], {}),
+                                 omesse_del_corpo(analysis, body["name"])))
         if _ha_interno(body):
             out.append(_foglio_sezioni(body, valori, proiezioni, sorgente))
     out.extend(_fogli_registro(registry, analysis, sorgente,
-                               decisioni=decisioni, scostamento=scostamento))
+                               decisioni=decisioni, scostamento=scostamento,
+                               recipe=recipe))
     return out
 
 
@@ -274,7 +413,8 @@ def _foglio_assieme(recipe: dict, proiezioni: dict, sorgente: str) -> tavola.Fog
 
 
 def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
-                  sorgente: str, contorni: dict) -> tavola.FoglioSpec:
+                  sorgente: str, contorni: dict,
+                  omesse: list[dict] | None = None) -> tavola.FoglioSpec:
     key = body["key"]
     g = _griglia(proiezioni, key,
                  {"pianta": "pianta", "prospetto": "prospetto", "laterale": "laterale"})
@@ -330,15 +470,32 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
     # confronto numerico.
     sagome = [tavola.Sagoma(f"{key}_{nome}", tuple(tuple(p) for p in punti))
               for nome, punti in contorni.items() if punti]
-    note = ["Ogni quota di questo foglio viene dal registro: misurata sulla mesh "
+
+    # Dove la mesh ha una superficie che il repertorio non costruisce, la vista
+    # porta la sua impronta invece di restare muta: è l'unico posto in cui chi
+    # legge la tavola può accorgersene guardando il pezzo, non una tabella.
+    impronte, richiami_omesse = _omesse_sulle_viste(key, body, list(omesse or []), scala)
+    sagome.extend(impronte)
+    richiami.extend(richiami_omesse)
+
+    # La fascia note del cartiglio tiene tre righe più la mesh di partenza: le
+    # legende si accorpano invece di spingersi fuori dal riquadro a vicenda.
+    pattern = any("PCD" in riga or riga.startswith("passo")
+                  for r in richiami for riga in r.righe)
+    note = ["Quote dal registro (misurate o approvate); Ø PCD e passo dai centri "
+            "dei fori misurati." if pattern else
+            "Ogni quota di questo foglio viene dal registro: misurata sulla mesh "
             "o approvata.",
             "Tratteggio fine = spigoli nascosti.  Linea mista rossa = tracce dei "
             "piani di sezione."]
-    if any("PCD" in riga or riga.startswith("passo") for r in richiami for riga in r.righe):
-        note.append("Nei richiami «N×» il diametro è del registro; Ø PCD e passo "
-                    "sono ricavati dai centri dei fori misurati.")
-    if sagome:
-        note.append("Linea rossa a tratti = profilo della mesh sezionata a metà del corpo.")
+    legenda = []
+    if contorni:
+        legenda.append("Linea rossa a tratti = profilo della mesh")
+    if impronte:
+        legenda.append(f"Linea viola = ingombro di {len(omesse or [])} superfici "
+                       f"misurate che il modello non porta")
+    if legenda:
+        note.append(".  ".join(legenda) + ".")
     return tavola.FoglioSpec(
         cartiglio=_cartiglio(f"{body['name']} - viste ortogonali", scala, sorgente,
                              note=tuple(note)),
@@ -527,7 +684,8 @@ RIGHE_PER_FOGLIO = 30
 
 def _fogli_registro(registry: Registry, analysis: dict, sorgente: str, *,
                     decisioni: list[dict] | None = None,
-                    scostamento: dict | None = None) -> list[tavola.FoglioSpec]:
+                    scostamento: dict | None = None,
+                    recipe: dict | None = None) -> list[tavola.FoglioSpec]:
     """La tabella che rende la tavola verificabile: ogni quota con la sua provenienza.
 
     È l'equivalente generico della «verifica contro la tavola TinkerCAD» del
@@ -567,27 +725,89 @@ def _fogli_registro(registry: Registry, analysis: dict, sorgente: str, *,
         )
         if n == len(blocchi):
             foglio = replace(foglio, riquadri=_riquadri_finali(analysis, decisioni,
-                                                               scostamento))
+                                                               scostamento, recipe))
         out.append(foglio)
     return out
 
 
+def _nel_modello(feature: dict, recipe: dict | None) -> bool:
+    """Il solido costruito porta davvero questa feature?
+
+    `buildable` dice se il repertorio *saprebbe* costruirla; non dice se è stata
+    costruita. Un'asola con la decisione «asole = fori» finisce nella ricetta pur
+    restando `buildable=False`, e un corpo escluso dalla decisione «corpi =
+    principale» non c'è pur essendo un prisma. Elencare fra le omesse una feature
+    che il solido contiene è la stessa bugia di tacerne una che non contiene, al
+    contrario: qui si guarda la ricetta.
+    """
+    if recipe is None:
+        return bool(feature.get("buildable"))
+    corpo = next((b for b in recipe.get("bodies", [])
+                  if b.get("name") == feature.get("body")), None)
+    if corpo is None:
+        return False                       # il corpo non è nel modello: niente lo è
+    kind = feature.get("kind")
+    if kind in ("prisma", "cavita"):
+        return kind != "cavita" or bool(corpo.get("cavity"))
+    if kind not in ("foro", "asola"):
+        return False                       # libera, sfera, cilindro, arco
+    p = feature.get("params", {})
+    try:
+        centro = [float(p[f"centro_{a}"]) for a in "xyz"]
+    except (KeyError, TypeError, ValueError):
+        return False
+    return any(
+        all(abs(c - float(d)) <= TOLLERANZA_POSIZIONE
+            for c, d in zip(centro, bore.get("center", ())))
+        for bore in corpo.get("bores", []) if len(bore.get("center", ())) == 3
+    )
+
+
+def _riga_omessa(feature: dict, con_posizione: bool = True) -> str:
+    """Una voce dell'elenco: che cos'è, quanto è grande, e — se è sola — dove sta."""
+    p = feature.get("params", {})
+    nome = NOME_OMESSA.get(feature.get("kind"), feature.get("kind", "?"))
+    if all(f"d{a}" in p for a in "xyz"):
+        ingombro = "  " + "×".join(_num(float(p[f"d{a}"])) for a in "xyz") + " mm"
+    elif feature.get("kind") == "asola" and "larghezza" in p:
+        ingombro = f"  larghezza {_num(float(p['larghezza']))}"
+    elif "diametro" in p:
+        ingombro = f"  Ø{_num(float(p['diametro']))}"
+    else:
+        ingombro = ""
+    if con_posizione and all(f"centro_{a}" in p for a in "xyz"):
+        centro = "  in (" + ", ".join(_num(float(p[f"centro_{a}"])) for a in "xyz") + ")"
+    else:
+        centro = ""
+    return f"{nome}{ingombro}{centro}"
+
+
 def _riquadri_finali(analysis: dict, decisioni: list[dict] | None,
-                     scostamento: dict | None) -> list[tavola.Riquadro]:
+                     scostamento: dict | None,
+                     recipe: dict | None = None) -> list[tavola.Riquadro]:
     """Quel che la tavola non disegna, scritto invece di essere taciuto."""
     out = []
-    non_ricostruibili = [f for f in analysis.get("features", []) if not f.get("buildable")]
-    # Cinque volte «superficie libera» sullo stesso corpo sono una riga con un
-    # numero davanti, non cinque righe: la tavola deve dire quante sono, non
-    # ripetersi finché lo spazio finisce.
-    conteggio: dict[str, int] = {}
-    for f in non_ricostruibili:
-        corpo = f["label"].split(":")[0]
-        conteggio[f"{corpo} — {f['kind']} ({f['note']})"] = \
-            conteggio.get(f"{corpo} — {f['kind']} ({f['note']})", 0) + 1
-    righe = [(f"{n}×  {testo}" if n > 1 else testo) for testo, n in list(conteggio.items())[:8]]
-    if len(conteggio) > 8:
-        righe.append(f"... e altre {len(conteggio) - 8} voci.")
+    omesse = [f for f in analysis.get("features", []) if not _nel_modello(f, recipe)]
+    # Un censimento, non un elenco: venti voci non ci stanno, e troncarle
+    # lascerebbe fuori proprio quelle piccole. Per ogni corpo e per ogni tipo di
+    # superficie: quante sono e qual è la maggiore. *Dove* stanno lo dicono le
+    # impronte sulle viste, che le portano tutte.
+    gruppi: dict[tuple[str, str], list[dict]] = {}
+    for f in omesse:
+        gruppi.setdefault((f["label"].split(":")[0], f.get("kind", "?")), []).append(f)
+    ordinati = sorted(gruppi.items(),
+                      key=lambda item: -sum(float(f.get("params", {}).get("area", 0.0))
+                                            for f in item[1]))
+    righe = []
+    for (corpo, _kind), gruppo in ordinati[:8]:
+        maggiore = max(gruppo, key=lambda f: float(f.get("params", {}).get("area", 0.0)))
+        molte = len(gruppo) > 1
+        prefisso = f"{len(gruppo)}×  " if molte else ""
+        coda = "  (la maggiore)" if molte else ""
+        righe.append(f"{corpo} — {prefisso}{_riga_omessa(maggiore, not molte)}{coda}")
+    if len(ordinati) > 8:
+        righe.append(f"... e altri {len(ordinati) - 8} gruppi: tutti hanno "
+                     f"l'impronta in viola sulle viste del corpo.")
     if not righe:
         righe = ["Nessuna: il repertorio del ricostruttore copre tutta la mesh."]
     out.append(tavola.Riquadro(

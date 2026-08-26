@@ -11,7 +11,10 @@ ricava le quote che quelle patch *dimostrano*:
 * profondità della cavità, quando esiste un fondo interno;
 * arrotondamento degli spigoli, letto da dove le facce piane si fermano;
 * fori e asole, dai cilindri riconosciuti;
-* superfici libere, che nessuna primitiva elementare spiega;
+* superfici libere, che nessuna primitiva elementare spiega, e — con esse — tutte
+  le superfici che una primitiva spiega ma che il ricostruttore non porta:
+  calotte sferiche, cilindri ad asse obliquo, archi spaiati. Sono dichiarate con
+  posizione e ingombro, perché una feature taciuta è peggio di una non costruita;
 * simmetria rispetto ai piani mediani e posizione del datum.
 
 Ogni numero che esce da qui porta con sé come è stato ottenuto. Quello che non è
@@ -124,6 +127,11 @@ class BodyAnalysis:
     #: Archi cilindrici parziali rimasti spaiati: né fori né testate di asola.
     arcs: list[dict[str, Any]] = field(default_factory=list)
     free_patches: list[Patch] = field(default_factory=list)
+    #: Superfici che esistono nella mesh e che il repertorio del ricostruttore non
+    #: porta: superfici libere, calotte sferiche, cilindri ad asse obliquo, archi
+    #: spaiati. Non sono quote — sono *presenze*, con dove stanno e quanto sono
+    #: grandi, perché una feature taciuta è peggio di una feature non costruita.
+    omitted: list[dict[str, Any]] = field(default_factory=list)
     symmetry: dict[str, float] = field(default_factory=dict)
 
     @property
@@ -163,6 +171,7 @@ class MeshAnalysis:
                     "closed": b.body.closed,
                     "patches": len(b.body.patches),
                     "free_patches": len(b.free_patches),
+                    "omesse": len(b.omitted),
                     "walls": dict(b.walls),
                     "symmetry": dict(b.symmetry),
                 }
@@ -203,8 +212,10 @@ def analyze(path_or_mesh, *, max_bodies: int = 8, log=lambda msg: None) -> MeshA
         _read_cavity(analysis)
         _read_roundings(analysis)
         _read_holes(analysis, mesh)
+        _read_spheres(analysis)
         _read_free_patches(analysis)
         _read_symmetry(analysis, mesh)
+        analysis.omitted.sort(key=lambda o: -o["area"])
         analyses.append(analysis)
 
         measurements.extend(_measurements_of(analysis))
@@ -212,7 +223,8 @@ def analyze(path_or_mesh, *, max_bodies: int = 8, log=lambda msg: None) -> MeshA
         log(f"{analysis.name}: ingombro "
             f"{analysis.extents[0]:.3f} × {analysis.extents[1]:.3f} × "
             f"{analysis.extents[2]:.3f} mm, {len(body.patches)} patch, "
-            f"{len(analysis.holes)} fori, {len(analysis.free_patches)} superfici libere")
+            f"{len(analysis.holes)} fori, {len(analysis.free_patches)} superfici libere, "
+            f"{len(analysis.omitted)} superfici fuori dal repertorio")
 
     if len(bodies) > max_bodies:
         notes.append(
@@ -224,6 +236,13 @@ def analyze(path_or_mesh, *, max_bodies: int = 8, log=lambda msg: None) -> MeshA
         notes.append(
             f"{free_total} superfici non riconducibili a piano, cilindro o sfera. "
             f"Non vengono approssimate di nascosto: sono una decisione."
+        )
+    altre = sum(1 for a in analyses for o in a.omitted if o["kind"] != "libera")
+    if altre:
+        notes.append(
+            f"{altre} superfici riconosciute ma fuori dal repertorio del "
+            f"ricostruttore (calotte sferiche, cilindri obliqui, archi spaiati): "
+            f"restano dichiarate con posizione e ingombro, non costruite."
         )
     return MeshAnalysis(mesh=mesh, bodies=analyses, measurements=measurements,
                         features=features, notes=notes)
@@ -408,10 +427,15 @@ def _read_holes(a: BodyAnalysis, mesh: Mesh) -> None:
     tale invece che promosso a foro.
     """
     arcs: list[dict[str, Any]] = []
+    arc_patches: dict[int, Patch] = {}
     for patch in a.body.of_kind("cylinder"):
         name = patch.axis_name
         if name is None or patch.radius is None:
-            continue  # asse obliquo: resta fra le feature, non fra i fori quotati
+            # Asse obliquo: il diametro non si quota su una vista ortogonale e il
+            # ricostruttore non sa mettercelo. Ma la superficie c'è, e tacerla
+            # sarebbe la cosa peggiore: finisce fra le presenze dichiarate.
+            _omit(a, patch, "cilindro", "cilindro ad asse obliquo")
+            continue
         k = AXES.index(name)
         span = float(patch.bbox_max[k] - patch.bbox_min[k])
         widths = [float(patch.bbox_max[j] - patch.bbox_min[j]) for j in range(3) if j != k]
@@ -430,11 +454,65 @@ def _read_holes(a: BodyAnalysis, mesh: Mesh) -> None:
         if min(widths) >= BORE_WIDTH_RATIO * patch.radius:
             a.holes.append(record)
         else:
+            arc_patches[len(arcs)] = patch
             arcs.append(record)
 
     a.holes.extend(_slots_from_arcs(arcs))
     a.arcs = [arc for arc in arcs if not arc.get("paired")]
     a.holes.sort(key=lambda h: -h["area"])
+    for index, arc in enumerate(arcs):
+        if arc.get("paired") or _spiegato_da_un_raccordo(a, arc["radius"]):
+            continue
+        _omit(a, arc_patches[index], "arco", "arco cilindrico parziale, spaiato")
+
+
+def _spiegato_da_un_raccordo(a: BodyAnalysis, radius: float) -> bool:
+    """L'arco è il raccordo che la build costruisce davvero, e non va dichiarato omesso.
+
+    Il raccordo verticale della ricetta nasce da un arrotondamento *circolare*
+    misurato sulle facce piane (`_read_roundings`). Quando un arco ha quel raggio,
+    la superficie che rappresenta finisce nel solido: elencarla fra le omesse
+    sarebbe una bugia simmetrica a quella che questo modulo evita.
+    """
+    for rounding in a.roundings:
+        if rounding.get("kind") != "spigolo" or not rounding.get("circular"):
+            continue
+        r = (rounding["value_along"] + rounding["value_across"]) / 2.0
+        if abs(r - radius) <= max(0.02 * radius, SAME):
+            return True
+    return False
+
+
+def _read_spheres(a: BodyAnalysis) -> None:
+    """Le calotte sferiche: misurate — centro e raggio — ma fuori dal repertorio.
+
+    `patches.py` le riconosce da sempre e nessuno le leggeva: sparivano fra
+    l'analisi e la tavola senza lasciare traccia. Il ricostruttore non le sa
+    costruire; questo non è un motivo per non dire che ci sono.
+    """
+    for patch in a.body.of_kind("sphere"):
+        _omit(a, patch, "sfera", "calotta sferica")
+
+
+def _omit(a: BodyAnalysis, patch: Patch, kind: str, note: str) -> None:
+    """Registra una superficie che il modello non porterà, con dove sta.
+
+    La posizione non è un vezzo: senza di essa la tavola può solo scrivere «c'è
+    una superficie libera», e chi legge non sa dove guardare. Con l'ingombro, la
+    vista può dire *lì*.
+    """
+    if patch.area < MIN_FACE_AREA:
+        return          # sotto quest'area è tassellazione, non una feature
+    a.omitted.append({
+        "kind": kind,
+        "note": note,
+        "area": float(patch.area),
+        "spread_deg": float(patch.spread_deg),
+        "bbox_min": [float(x) for x in patch.bbox_min],
+        "bbox_max": [float(x) for x in patch.bbox_max],
+        "radius": None if patch.radius is None else float(patch.radius),
+        "axis": patch.axis_name,
+    })
 
 
 def _slots_from_arcs(arcs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -476,6 +554,8 @@ def _slots_from_arcs(arcs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _read_free_patches(a: BodyAnalysis) -> None:
     a.free_patches = [p for p in a.body.of_kind("free") if p.area >= MIN_FACE_AREA]
+    for patch in a.free_patches:
+        _omit(a, patch, "libera", "né piano né cilindro né sfera")
 
 
 def _read_symmetry(a: BodyAnalysis, mesh: Mesh) -> None:
@@ -583,13 +663,42 @@ def _features_of(a: BodyAnalysis) -> list[Feature]:
             note=f"asse {hole['axis']}",
             buildable=not hole["slot"],
         ))
-    for patch in a.free_patches:
+    for omission in a.omitted:
         out.append(Feature(
-            kind="libera", body=a.name, label=f"{a.name}: superficie libera",
-            params={"area": patch.area, "spread_deg": patch.spread_deg,
-                    "dx": float(patch.extents[0]), "dy": float(patch.extents[1]),
-                    "dz": float(patch.extents[2])},
-            note="né piano né cilindro né sfera",
+            kind=omission["kind"], body=a.name,
+            label=f"{a.name}: {_ETICHETTA_OMESSA[omission['kind']]}",
+            params=_params_omessa(omission),
+            note=omission["note"],
             buildable=False,
         ))
     return out
+
+
+#: Come si chiama, sulla tavola, una superficie che il modello non porta.
+_ETICHETTA_OMESSA = {
+    "libera": "superficie libera",
+    "sfera": "calotta sferica",
+    "cilindro": "cilindro ad asse obliquo",
+    "arco": "arco cilindrico spaiato",
+}
+
+
+def _params_omessa(omission: dict[str, Any]) -> dict[str, float]:
+    """Ingombro e posizione di una superficie omessa, nel sistema della mesh.
+
+    `dx`/`dy`/`dz` restano il nome storico dell'ingombro; `origine_*` e `centro_*`
+    sono la novità che permette alla tavola di disegnarne l'impronta sulla vista
+    giusta invece di limitarsi a nominarla in un riquadro.
+    """
+    low, high = omission["bbox_min"], omission["bbox_max"]
+    params = {
+        "area": omission["area"], "spread_deg": omission["spread_deg"],
+        "dx": high[0] - low[0], "dy": high[1] - low[1], "dz": high[2] - low[2],
+        "origine_x": low[0], "origine_y": low[1], "origine_z": low[2],
+        "centro_x": (low[0] + high[0]) / 2.0,
+        "centro_y": (low[1] + high[1]) / 2.0,
+        "centro_z": (low[2] + high[2]) / 2.0,
+    }
+    if omission["radius"] is not None:
+        params["raggio"] = omission["radius"]
+    return params
