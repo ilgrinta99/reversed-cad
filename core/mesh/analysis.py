@@ -24,6 +24,7 @@ all'utente (`core.mesh.ambiguity`).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -127,6 +128,8 @@ class BodyAnalysis:
     #: Archi cilindrici parziali rimasti spaiati: né fori né testate di asola.
     arcs: list[dict[str, Any]] = field(default_factory=list)
     free_patches: list[Patch] = field(default_factory=list)
+    #: Cupole: paraboloidi ellittici ad asse coordinato. Bordo, altezza e verso.
+    caps: list[dict[str, Any]] = field(default_factory=list)
     #: Superfici che esistono nella mesh e che il repertorio del ricostruttore non
     #: porta: superfici libere, calotte sferiche, cilindri ad asse obliquo, archi
     #: spaiati. Non sono quote — sono *presenze*, con dove stanno e quanto sono
@@ -212,6 +215,7 @@ def analyze(path_or_mesh, *, max_bodies: int = 8, log=lambda msg: None) -> MeshA
         _read_cavity(analysis)
         _read_roundings(analysis)
         _read_holes(analysis, mesh)
+        _read_caps(analysis)
         _read_spheres(analysis)
         _read_free_patches(analysis)
         _read_symmetry(analysis, mesh)
@@ -429,12 +433,29 @@ def _read_holes(a: BodyAnalysis, mesh: Mesh) -> None:
     arcs: list[dict[str, Any]] = []
     arc_patches: dict[int, Patch] = {}
     for patch in a.body.of_kind("cylinder"):
+        if patch.radius is None:
+            continue
         name = patch.axis_name
-        if name is None or patch.radius is None:
-            # Asse obliquo: il diametro non si quota su una vista ortogonale e il
-            # ricostruttore non sa mettercelo. Ma la superficie c'è, e tacerla
-            # sarebbe la cosa peggiore: finisce fra le presenze dichiarate.
-            _omit(a, patch, "cilindro", "cilindro ad asse obliquo")
+        if name is None:
+            # Asse obliquo. Un cilindro *intero* resta un foro: girargli intorno
+            # per tutto il diametro è la prova che è un foro, e l'inclinazione è
+            # una misura come le altre. Un arco obliquo no: di quella testata non
+            # si sa nemmeno di che feature è, e resta una presenza dichiarata.
+            span, widths = _misure_nel_frame(patch, mesh)
+            if min(widths) < BORE_WIDTH_RATIO * patch.radius:
+                _omit(a, patch, "cilindro", "arco cilindrico ad asse obliquo")
+                continue
+            direction = np.asarray(patch.axis, dtype=float)
+            a.holes.append({
+                "axis": None,
+                "direzione": [float(v) for v in direction / np.linalg.norm(direction)],
+                "diameter": 2.0 * patch.radius, "radius": float(patch.radius),
+                "depth": span,
+                "center": ([float(x) for x in patch.center]
+                           if patch.center is not None else None),
+                "rms": patch.rms, "slot": False,
+                "width": min(widths), "length": max(widths), "area": patch.area,
+            })
             continue
         k = AXES.index(name)
         span = float(patch.bbox_max[k] - patch.bbox_min[k])
@@ -466,6 +487,25 @@ def _read_holes(a: BodyAnalysis, mesh: Mesh) -> None:
         _omit(a, arc_patches[index], "arco", "arco cilindrico parziale, spaiato")
 
 
+def _misure_nel_frame(patch: Patch, mesh: Mesh) -> tuple[float, list[float]]:
+    """Lunghezza e larghezze di un cilindro obliquo, nel suo riferimento.
+
+    L'ingombro in assi coordinati di un cilindro inclinato è più largo del
+    cilindro: misurarci sopra il criterio «foro o arco» direbbe foro anche a un
+    quarto di giro. Le due larghezze si misurano perpendicolarmente al suo asse.
+    """
+    axis = np.asarray(patch.axis, dtype=float)
+    axis = axis / np.linalg.norm(axis)
+    points = mesh.vertices[np.unique(mesh.faces[patch.faces])]
+    seed = np.array([1.0, 0.0, 0.0]) if abs(axis[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(axis, seed)
+    u /= np.linalg.norm(u)
+    v = np.cross(axis, u)
+    along = points @ axis
+    widths = [float((points @ e).max() - (points @ e).min()) for e in (u, v)]
+    return float(along.max() - along.min()), widths
+
+
 def _spiegato_da_un_raccordo(a: BodyAnalysis, radius: float) -> bool:
     """L'arco è il raccordo che la build costruisce davvero, e non va dichiarato omesso.
 
@@ -481,6 +521,39 @@ def _spiegato_da_un_raccordo(a: BodyAnalysis, radius: float) -> bool:
         if abs(r - radius) <= max(0.02 * radius, SAME):
             return True
     return False
+
+
+def _read_caps(a: BodyAnalysis) -> None:
+    """Le cupole, dai paraboloidi riconosciuti.
+
+    Ogni numero che entra nel modello viene dall'ingombro della patch, non dai
+    coefficienti del fit: semiassi del bordo = metà delle estensioni trasversali,
+    altezza = estensione lungo l'asse, centro del bordo = punto medio. Il fit
+    serve a *decidere* che quella superficie è una cupola e da che parte guarda;
+    le quote restano misure dirette, come per ogni altra feature.
+    """
+    for patch in a.body.of_kind("paraboloid"):
+        if patch.area < MIN_FACE_AREA or patch.axis is None:
+            continue
+        k = int(np.argmax(np.abs(patch.axis)))
+        verso = 1 if float(patch.axis[k]) > 0 else -1
+        i, j = [q for q in range(3) if q != k]
+        low, high = patch.bbox_min, patch.bbox_max
+        centro = [(float(low[q]) + float(high[q])) / 2.0 for q in range(3)]
+        # Il bordo sta all'estremo verso cui la cupola si apre; il vertice all'altro.
+        centro[k] = float(high[k]) if verso > 0 else float(low[k])
+        a.caps.append({
+            "axis": AXES[k],
+            "verso": verso,
+            "assi_bordo": (AXES[i], AXES[j]),
+            "centro": centro,
+            "semi": {AXES[i]: float(high[i] - low[i]) / 2.0,
+                     AXES[j]: float(high[j] - low[j]) / 2.0},
+            "altezza": float(high[k] - low[k]),
+            "area": float(patch.area),
+            "rms": float(patch.rms),
+        })
+    a.caps.sort(key=lambda c: -c["area"])
 
 
 def _read_spheres(a: BodyAnalysis) -> None:
@@ -621,6 +694,15 @@ def _measurements_of(a: BodyAnalysis) -> list[Measurement]:
                 f"raccordo {rounding['edge']} · semiasse {rounding['across']}",
                 rounding["value_across"], note="arretramento della faccia")
 
+    for index, cap in enumerate(a.caps, start=1):
+        for axis in cap["assi_bordo"]:
+            add(f"cupola{index}_semiasse_{axis.lower()}",
+                f"cupola {index} · semiasse {axis} del bordo", cap["semi"][axis],
+                note="metà dell'estensione della patch: misura diretta")
+        add(f"cupola{index}_altezza", f"cupola {index} · altezza",
+            cap["altezza"], note=f"paraboloide ellittico asse {cap['axis']}, "
+                                 f"rms del fit {cap['rms']:.4f}")
+
     for index, hole in enumerate(a.holes, start=1):
         if hole["slot"]:
             add(f"asola{index}_larghezza", f"asola {index} · larghezza", hole["width"],
@@ -629,10 +711,20 @@ def _measurements_of(a: BodyAnalysis) -> list[Measurement]:
                 note=f"interasse delle testate {hole.get('interasse', 0.0):.4f}")
         else:
             add(f"foro{index}_diametro", f"foro {index} · diametro", hole["diameter"],
-                note=f"cilindro asse {hole['axis']}, rms {hole['rms']:.4f}")
+                note=f"cilindro asse {_nome_asse(hole)}, rms {hole['rms']:.4f}")
         add(f"{'asola' if hole['slot'] else 'foro'}{index}_profondita",
             f"{'asola' if hole['slot'] else 'foro'} {index} · profondità", hole["depth"])
     return out
+
+
+def _nome_asse(hole: dict[str, Any]) -> str:
+    """«X», «Y», «Z» oppure l'inclinazione vera, per un foro non coordinato."""
+    if hole.get("axis"):
+        return str(hole["axis"])
+    d = hole.get("direzione") or [0.0, 0.0, 1.0]
+    vicino = max(range(3), key=lambda k: abs(d[k]))
+    gradi = math.degrees(math.acos(min(1.0, abs(d[vicino]))))
+    return f"{AXES[vicino]} inclinato di {gradi:.1f}°"
 
 
 def _features_of(a: BodyAnalysis) -> list[Feature]:
@@ -652,15 +744,32 @@ def _features_of(a: BodyAnalysis) -> list[Feature]:
                     **{f"parete_{k.lower().replace('-', '_')}": v
                        for k, v in a.walls.items()}},
         ))
+    for index, cap in enumerate(a.caps, start=1):
+        out.append(Feature(
+            kind="cupola", body=a.name, label=f"{a.name}: cupola {index}",
+            params={
+                "altezza": cap["altezza"],
+                **{f"semiasse_{k.lower()}": v for k, v in cap["semi"].items()},
+                "centro_x": cap["centro"][0], "centro_y": cap["centro"][1],
+                "centro_z": cap["centro"][2],
+                "verso": float(cap["verso"]), "area": cap["area"], "rms": cap["rms"],
+            },
+            note=f"paraboloide ellittico, asse {cap['axis']}"
+                 f"{'+' if cap['verso'] > 0 else '-'}",
+        ))
     for index, hole in enumerate(a.holes, start=1):
         centre = hole["center"] or [0.0, 0.0, 0.0]
+        params = {"diametro": hole["diameter"], "profondita": hole["depth"],
+                  "larghezza": hole["width"], "lunghezza": hole["length"],
+                  "centro_x": centre[0], "centro_y": centre[1], "centro_z": centre[2]}
+        if hole.get("direzione"):
+            params.update({f"direzione_{k}": v
+                           for k, v in zip("xyz", hole["direzione"])})
         out.append(Feature(
             kind="asola" if hole["slot"] else "foro", body=a.name,
             label=f"{a.name}: {'asola' if hole['slot'] else 'foro'} {index}",
-            params={"diametro": hole["diameter"], "profondita": hole["depth"],
-                    "larghezza": hole["width"], "lunghezza": hole["length"],
-                    "centro_x": centre[0], "centro_y": centre[1], "centro_z": centre[2]},
-            note=f"asse {hole['axis']}",
+            params=params,
+            note=f"asse {_nome_asse(hole)}",
             buildable=not hole["slot"],
         ))
     for omission in a.omitted:

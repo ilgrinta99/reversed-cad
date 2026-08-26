@@ -68,10 +68,15 @@ class Patch:
     spread_deg: float
     normal: np.ndarray | None = None       # piano: normale media
     offset: float | None = None            # piano: n · p
-    axis: np.ndarray | None = None         # cilindro: direzione dell'asse
-    center: np.ndarray | None = None       # cilindro/sfera: punto sull'asse / centro
+    axis: np.ndarray | None = None         # cilindro/paraboloide: direzione dell'asse
+    center: np.ndarray | None = None       # cilindro/sfera: punto sull'asse / centro;
+                                           # paraboloide: vertice
     radius: float | None = None
     length: float | None = None            # cilindro: estensione lungo l'asse
+    #: Paraboloide: le due curvature (k_i, k_j) delle sezioni principali, in 1/mm.
+    #: Il semiasse del bordo non sta qui perché non è della *superficie*: è di
+    #: dove la patch finisce, e lo dice `extents`.
+    curvature: tuple[float, float] | None = None
     rms: float = 0.0
 
     @property
@@ -108,6 +113,10 @@ class Patch:
                     f"R={self.radius:.4f} L={self.length:.3f} rms={self.rms:.4f}")
         if self.kind == "sphere":
             return f"sfera A={self.area:.2f} R={self.radius:.4f} rms={self.rms:.4f}"
+        if self.kind == "paraboloid":
+            e = self.extents
+            return (f"cupola A={self.area:.2f} asse={self.axis_name or '?'} "
+                    f"bordo={e[0]:.3f}×{e[1]:.3f}×{e[2]:.3f} rms={self.rms:.4f}")
         return f"libera A={self.area:.2f} spread={self.spread_deg:.1f}°"
 
 
@@ -254,6 +263,51 @@ def fit_cylinder(points: np.ndarray, normals: np.ndarray
     return axis, center, radius, rms
 
 
+def fit_paraboloid(points: np.ndarray
+                   ) -> tuple[int, np.ndarray, tuple[float, float], float] | None:
+    """Paraboloide ellittico ad asse coordinato: vertice, curvature, rms.
+
+    È la forma delle cupole che escono dai modellatori per hobbisti — quello che
+    a occhio si chiama «calotta» quasi mai è una sfera. Sulla mesh di questo
+    progetto la cupola dà rms 0.016 mm come paraboloide e 1.44 mm come sfera: non
+    è una preferenza di modello, è la differenza fra misurare e tirare a indovinare.
+
+    Perché solo gli assi coordinati: un paraboloide obliquo non si quota su una
+    vista ortogonale e il costruttore non saprebbe dove metterlo. Provarlo lo
+    stesso vorrebbe dire riconoscere una forma che poi non si può né disegnare né
+    costruire — e questo modulo esiste per il contrario.
+    """
+    if len(points) < 12:
+        return None
+    best = None
+    for k in range(3):
+        i, j = [q for q in range(3) if q != k]
+        pi, pj, pk = points[:, i], points[:, j], points[:, k]
+        A = np.c_[np.ones(len(points)), pi, pi ** 2, pj, pj ** 2]
+        try:
+            coef, *_ = np.linalg.lstsq(A, pk, rcond=None)
+        except np.linalg.LinAlgError:
+            continue
+        c0, c1, ci, c3, cj = (float(v) for v in coef)
+        # Le due curvature devono esistere ed essere concordi: discordi sarebbe
+        # una sella, e una sella non è una cupola.
+        if ci * cj <= 0.0:
+            continue
+        # Scarto geometrico, non verticale: |Δk| diviso il modulo del gradiente.
+        residual = pk - A @ coef
+        slope = np.sqrt(1.0 + (c1 + 2 * ci * pi) ** 2 + (c3 + 2 * cj * pj) ** 2)
+        rms = float(np.sqrt(np.mean((residual / slope) ** 2)))
+        if best is not None and rms >= best[3]:
+            continue
+        vertex = np.zeros(3)
+        vertex[i] = -c1 / (2.0 * ci)
+        vertex[j] = -c3 / (2.0 * cj)
+        vertex[k] = c0 + c1 * vertex[i] + ci * vertex[i] ** 2 \
+            + c3 * vertex[j] + cj * vertex[j] ** 2
+        best = (k, vertex, (ci, cj), rms)
+    return best
+
+
 def fit_sphere(points: np.ndarray) -> tuple[np.ndarray, float, float] | None:
     if len(points) < 8:
         return None
@@ -303,6 +357,21 @@ def classify(vertices: np.ndarray, faces: np.ndarray, group: np.ndarray,
         center, radius, rms = sph
         if rms / radius < FIT_RMS_RATIO and rms < FIT_RMS_ABS:
             return Patch(kind="sphere", center=center, radius=radius, rms=rms, **common)
+
+    par = fit_paraboloid(points)
+    if par is not None:
+        k, vertex, curvature, rms = par
+        extents = common["bbox_max"] - common["bbox_min"]
+        # Il «raggio» con cui misurare l'errore relativo è il semiasse maggiore
+        # del bordo: è la dimensione che la cupola ha davvero.
+        reach = float(max(extents[q] for q in range(3) if q != k)) / 2.0
+        if reach > 1e-9 and rms / reach < FIT_RMS_RATIO and rms < FIT_RMS_ABS:
+            axis = np.zeros(3)
+            # L'asse punta dal vertice verso l'apertura: è il verso in cui la
+            # cupola si allarga, e quello con cui il costruttore la orienta.
+            axis[k] = 1.0 if curvature[0] > 0 else -1.0
+            return Patch(kind="paraboloid", axis=axis, center=vertex,
+                         curvature=tuple(abs(c) for c in curvature), rms=rms, **common)
 
     return Patch(kind="free", **common)
 

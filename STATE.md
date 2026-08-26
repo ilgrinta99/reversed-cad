@@ -4,7 +4,8 @@
 non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la tavola
 è una tavola anche lì, con viste proiettate, sezioni, quote e assonometria.
 FASE 9: la mesh può essere OBJ, STL, PLY o WRL. FASE 10: quello che il modello
-non porta si vede sulla tavola, con posizione e ingombro.
+non porta si vede sulla tavola, con posizione e ingombro. FASE 11: la cupola non
+era una superficie libera — è un paraboloide, e adesso si costruisce.
 **Aggiornato:** 2026-08-26
 
 ## Fatto
@@ -23,6 +24,8 @@ non porta si vede sulla tavola, con posizione e ingombro.
 - [x] FASE 9 — quattro formati di ingresso: OBJ, STL, PLY, WRL
 - [x] FASE 10 — niente sparisce in silenzio: ogni superficie fuori dal repertorio
       è dichiarata con posizione e ingombro, e ha la sua impronta sulle viste
+- [x] FASE 11 — cupole (paraboloidi ellittici) e fori inclinati nel repertorio:
+      scostamento mediano da 2.347 a 0.027 mm sulla mesh di prova
 
 ## Uscite
 | file | contenuto |
@@ -74,11 +77,11 @@ erano semplicemente le ambiguità di un altro pezzo.
 
 | Modulo | Cosa risponde |
 |---|---|
-| `core/mesh/patches.py` | di quanti corpi è fatta la mesh, e di quali superfici (piano, cilindro, sfera, libera) |
+| `core/mesh/patches.py` | di quanti corpi è fatta la mesh, e di quali superfici (piano, cilindro, sfera, paraboloide, libera) |
 | `core/mesh/analysis.py` | quali quote quelle superfici dimostrano: ingombri, pareti, cavità, raccordi, fori, asole, simmetria, datum |
 | `core/mesh/ambiguity.py` | dove la misura non è conclusiva, con le opzioni numeriche già calcolate |
 | `core/mesh/sections.py` | sezioni piane, aree dei contorni, fit di cerchi |
-| `parts/auto/` | ricostruzione parametrica con repertorio dichiarato: prisma, raccordo verticale, cavità, fori |
+| `parts/auto/` | ricostruzione parametrica con repertorio dichiarato: prisma, raccordo verticale, cavità, cupola, fori (anche inclinati) |
 
 Le schede di decisione compaiono **dopo** l'analisi, perché prima non esistono. Se
 la mesh non solleva ambiguità, il pannello lo dice e il modello si costruisce con
@@ -221,6 +224,55 @@ Tre cause distinte, tutte e tre chiuse:
 Restano fuori dal repertorio del *costruttore*: la cupola non si costruisce, e non
 la si approssima. La differenza è che adesso la tavola dice dove sta, quanto è
 grande e che il modello non ce l'ha — invece di lasciare il foglio bianco lì.
+
+### La cupola non era una superficie libera: era un paraboloide (FASE 11)
+
+Dalla FASE 1 la cupola del TAISER era catalogata come «né piano né cilindro né
+sfera» e la decisione A la faceva ignorare. Non era vero: è un **paraboloide
+ellittico**, e basta provare a interpolarla per vederlo — come sfera dà rms
+**1.443 mm**, come paraboloide **0.016 mm**, novanta volte meglio. Lo stesso vale
+per la cupola della mesh di prova: 1.44 contro 0.018 mm.
+
+`patches.py` prova ora il paraboloide dopo piano, cilindro e sfera, con gli stessi
+criteri di accettazione (2 % del semiasse maggiore **e** 0.10 mm). Il fit è ad assi
+coordinati per scelta: un paraboloide obliquo non si quota su una vista ortogonale
+e il costruttore non saprebbe dove metterlo. Il criterio è selettivo — su entrambe
+le mesh riconosce **solo** le due cupole vere e rifiuta ogni altra superficie
+libera.
+
+Le quote che entrano nel modello sono misure dirette dell'ingombro della patch —
+semiassi del bordo, altezza, centro — non i coefficienti del fit: il fit decide
+*che cosa* è quella superficie, non *quanto* misura.
+
+**Fori a testa storta.** I due fori della cupola di prova escono a 21.8° dalla
+parete. `_read_holes` scartava ogni cilindro ad asse non coordinato: non finivano
+né fra i fori né altrove. Ora un cilindro *intero* è un foro anche obliquo — girargli
+intorno per tutto il diametro è la prova che è un foro — e porta la sua direzione
+misurata fino allo STEP. Un *arco* obliquo resta dichiarato: di quella testata non
+si sa nemmeno di che feature è. Sul TAISER i due cilindri obliqui sono archi da
+90° e infatti restano dichiarati: niente cambia lì.
+
+**Costruzione.** `build_script.py` rivoluziona una parabola vera (Y² = 4·F·X con
+F = ¼) e scala i tre assi sulle quote misurate. Il repertorio dichiarato diventa:
+prisma, raccordo verticale, cavità, **cupola**, fori cilindrici **anche inclinati**.
+
+**Effetto misurato**, mesh di prova, pipeline intera sotto FreeCAD 1.1.3:
+
+| | prima | dopo |
+|---|---|---|
+| scostamento mediano | 2.347 mm | **0.027 mm** |
+| scostamento medio | 2.538 mm | 0.995 mm |
+| p90 | 5.616 mm | 3.850 mm |
+| feature costruite | 12 | 15 |
+
+Sul TAISER la mediana passa da 2.017 a **0.017 mm**, la media da 2.193 a 0.647.
+Il p90 resta sopra il millimetro su entrambe: è il resto del repertorio — le
+colonnine sono prismi e non hanno i loro raccordi — e la tavola continua a dirlo.
+
+Nello stesso giro il confronto ha smesso di mentire sulle cavità: misurava la
+distanza dal solo prisma esterno, quindi un punto sul fondo interno risultava
+lontano quanto è spesso il fondo. Ora `_distance_to_body` conta prisma, cavità e
+cupole.
 
 ### Aperto sulla web app
 1. **Immagine Docker mai costruita davvero.** FreeCAD conda-forge è stato verificato

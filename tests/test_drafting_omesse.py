@@ -204,3 +204,107 @@ def test_l_impronta_ha_uno_stile_suo_nei_tre_formati():
 def test_la_sagoma_di_default_resta_il_profilo_della_mesh():
     """Chi già usava `Sagoma` non deve accorgersi di niente."""
     assert tavola.Sagoma("v", ((0.0, 0.0), (1.0, 1.0))).stile == 'riferimento'
+
+
+# ------------------------------------------------------------------- cupole
+
+
+def _cupola_feature(body: str = "scatola") -> dict:
+    return {"kind": "cupola", "body": body, "label": f"{body}: cupola 1",
+            "params": {"altezza": 4.0, "semiasse_x": 12.0, "semiasse_y": 7.0,
+                       "centro_x": 20.0, "centro_y": 12.5, "centro_z": 12.0,
+                       "verso": 1.0, "area": 300.0, "rms": 0.02},
+            "note": "paraboloide ellittico, asse Z+", "buildable": True}
+
+
+def _cap() -> dict:
+    return {"axis": "Z", "verso": 1, "semi": {"X": 12.0, "Y": 7.0},
+            "altezza": 4.0, "centro": [20.0, 12.5, 12.0]}
+
+
+def test_una_cupola_costruita_non_e_una_feature_omessa():
+    """La cupola è nel solido: elencarla fra quelle che mancano sarebbe falso."""
+    corpo = _corpo()
+    corpo["caps"] = [_cap()]
+    recipe = {"bodies": [corpo], "source": "prova.obj"}
+    riquadri = drawing._riquadri_finali(_analysis([_cupola_feature()]), None, None, recipe)
+    assert riquadri[0].righe == ("Nessuna: il repertorio del ricostruttore copre tutta la mesh.",)
+
+    # Senza la cupola nella ricetta — quota mancante, decisione contraria — va detto.
+    riquadri = drawing._riquadri_finali(_analysis([_cupola_feature()]), None, None, _recipe())
+    assert any("cupola" in riga for riga in riquadri[0].righe)
+
+
+def test_la_cupola_si_quota_sul_bordo_e_sulla_sporgenza():
+    """Due assi dove si vede l'ellisse, l'altezza dove si vede di taglio.
+
+    Dalla sola ellisse non si sa quanto sporge; dalla sola sporgenza non si sa
+    quanto è larga. Una tavola con una sola delle due non descrive la cupola.
+    """
+    corpo = _corpo()
+    corpo["caps"] = [_cap()]
+    valori = {"c1_cupola1_semiasse_x": 12.0, "c1_cupola1_semiasse_y": 7.0,
+              "c1_cupola1_altezza": 4.0}
+    quote = list(drawing._quote_cupole("c1", corpo, valori, 1.0))
+    testi = {(q.vista, q.testo) for q in quote}
+    # Asse Z: l'ellisse si legge in pianta, la sporgenza sul prospetto o laterale.
+    assert ("c1_pianta", "24.00") in testi
+    assert ("c1_pianta", "14.00") in testi
+    assert any(v != "c1_pianta" and t == "4.00" for v, t in testi)
+
+
+def test_senza_la_quota_nel_registro_la_cupola_non_si_quota():
+    """La regola non cambia per le cupole: nessun numero fuori dal registro."""
+    corpo = _corpo()
+    corpo["caps"] = [_cap()]
+    assert list(drawing._quote_cupole("c1", corpo, {}, 1.0)) == []
+
+
+# ------------------------------------------------------- fori inclinati
+
+
+def test_un_foro_inclinato_dice_di_quanto():
+    """«asse Y» su un foro a 21.8° prometterebbe un foro che non c'è."""
+    corpo = _corpo([{"axis": None, "direction": [0.3714, 0.9285, 0.0],
+                     "diameter": 2.5, "depth": 8.0, "center": [10.0, 5.0, 6.0]}])
+    valori = {"c1_foro1_diametro": 2.5, "c1_foro1_profondita": 8.0}
+    richiami = list(drawing._richiami_fori("c1", corpo, valori))
+    assert len(richiami) == 1
+    assert "inclinato 21.8°" in " ".join(richiami[0].righe)
+    # Si legge sulla vista dell'asse a cui somiglia di più.
+    assert richiami[0].vista == "c1_prospetto"
+
+
+def test_un_foro_inclinato_non_entra_in_un_pattern():
+    """«4× Ø3» promette quattro fori uguali, e uno inclinato non lo è."""
+    dritti = [{"axis": "Z", "diameter": 3.0, "depth": 5.0,
+               "center": [x, y, 6.0]}
+              for x, y in ((5.0, 5.0), (15.0, 5.0), (25.0, 5.0))]
+    corpo = _corpo(dritti + [{"axis": None, "direction": [0.3, 0.0, 0.954],
+                              "diameter": 3.0, "depth": 5.0,
+                              "center": [35.0, 5.0, 6.0]}])
+    valori = {}
+    for i in range(1, 5):
+        valori[f"c1_foro{i}_diametro"] = 3.0
+        valori[f"c1_foro{i}_profondita"] = 5.0
+    righe = [" ".join(r.righe) for r in drawing._richiami_fori("c1", corpo, valori)]
+    assert any(r.startswith("3× foro Ø3.00") for r in righe)
+    assert any("inclinato" in r for r in righe)
+
+
+# ------------------------------------------------ disposizione dei richiami
+
+
+def test_i_richiami_di_una_vista_scendono_in_colonna():
+    """Con uno scostamento fisso due fori vicini davano due testi sovrapposti."""
+    corpo = _corpo([{"axis": "Z", "diameter": 3.0, "depth": 5.0,
+                     "center": [30.0, 20.0, 6.0]},
+                    {"axis": "Z", "diameter": 3.0, "depth": 5.0,
+                     "center": [31.0, 19.0, 6.0]}])
+    valori = {"c1_foro1_diametro": 3.0, "c1_foro1_profondita": 5.0,
+              "c1_foro2_diametro": 3.0, "c1_foro2_profondita": 5.0}
+    grezzi = list(drawing._richiami_fori("c1", corpo, valori))
+    assert len({r.scostamento for r in grezzi}) == 1, "nascono tutti uguali"
+    posti = drawing._incolonna(grezzi, "c1", corpo, 1.0)
+    y = [r.punto[1] + r.scostamento[1] for r in posti]
+    assert abs(y[0] - y[1]) >= drawing.PASSO_RICHIAMO - 1e-9

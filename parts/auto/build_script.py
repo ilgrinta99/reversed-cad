@@ -5,12 +5,13 @@ cioè è misurato dalla mesh o approvato dall'utente — e la esegue. Qui non si
 decide e non si stima niente: se un parametro manca, la ricetta non lo conteneva,
 e il pezzo esce senza quella feature invece che con una inventata.
 
-Il repertorio è dichiarato e finito: prisma, raccordo verticale, cavità, fori
-cilindrici. È il limite che l'analisi comunica all'utente sotto forma di feature
-«non ricostruibili».
+Il repertorio è dichiarato e finito: prisma, raccordo verticale, cavità, cupole
+(paraboloidi ellittici) e fori cilindrici, anche ad asse inclinato. È il limite
+che l'analisi comunica all'utente sotto forma di feature «non ricostruibili».
 """
 
 import json
+import math
 import os
 import sys
 
@@ -19,9 +20,56 @@ sys.path.insert(0, os.environ["TEISER_REPO_ROOT"])
 
 import FreeCAD  # noqa: E402,F401
 import Part  # noqa: E402
-from FreeCAD import Vector  # noqa: E402
+from FreeCAD import Matrix, Rotation, Vector  # noqa: E402
 
 from core.freecad.script import arg_path, done  # noqa: E402
+
+ASSI = {"X": Vector(1, 0, 0), "Y": Vector(0, 1, 0), "Z": Vector(0, 0, 1)}
+
+
+def paraboloide(altezza, semi_u, semi_v):
+    """Cupola: paraboloide ellittico con il vertice nell'origine e l'asse +X.
+
+    Il profilo è una parabola vera, non un arco di cerchio né una spline
+    approssimata: Y² = 4·F·X con F = ¼ passa per (0,0) e (1,1), cioè descrive
+    esattamente X = r² sul cerchio unitario. Si rivoluziona attorno a +X e poi si
+    scalano i tre assi sulle quote misurate — altezza lungo l'asse, semiassi del
+    bordo in trasversale. La scala anisotropa trasforma la superficie di
+    rivoluzione in una B-spline: è la stessa forma, scritta in un'altra base.
+    """
+    parabola = Part.Parabola()
+    parabola.Focal = 0.25
+    profilo = parabola.toShape(0.0, 1.0)                 # (0,0,0) → (1,1,0)
+    bordo = Part.makeLine(Vector(1, 1, 0), Vector(1, 0, 0))
+    guscio = Part.Shell(profilo.revolve(Vector(0, 0, 0), Vector(1, 0, 0), 360).Faces
+                        + bordo.revolve(Vector(0, 0, 0), Vector(1, 0, 0), 360).Faces)
+    scala = Matrix()
+    scala.scale(float(altezza), float(semi_u), float(semi_v))
+    return Part.Solid(guscio).transformGeometry(scala)
+
+
+def cupola_orientata(cap):
+    """La cupola nella posizione misurata: bordo sul piano, vertice che sporge.
+
+    `centro` è il centro del *bordo*, e il verso dice da che parte sta il vertice.
+    Il solido nasce con il vertice nell'origine e il bordo a +X: si ruota +X sulla
+    direzione vertice → bordo e si porta l'origine dove va il vertice.
+    """
+    asse = str(cap["axis"])
+    verso = 1.0 if float(cap.get("verso", 1.0)) >= 0 else -1.0
+    u_nome, v_nome = [k for k in "XYZ" if k != asse]
+    altezza = float(cap["altezza"])
+    solido = paraboloide(altezza, cap["semi"][u_nome], cap["semi"][v_nome])
+
+    e = ASSI[asse]
+    dal_vertice_al_bordo = Vector(e.x * verso, e.y * verso, e.z * verso)
+    centro = Vector(*(float(v) for v in cap["centro"]))
+    vertice = centro - Vector(dal_vertice_al_bordo.x * altezza,
+                              dal_vertice_al_bordo.y * altezza,
+                              dal_vertice_al_bordo.z * altezza)
+    solido.Placement = FreeCAD.Placement(
+        vertice, Rotation(Vector(1, 0, 0), dal_vertice_al_bordo))
+    return solido
 
 recipe_path = arg_path(0, "recipe.json")
 out_dir = arg_path(1, "cartella di uscita")
@@ -65,19 +113,35 @@ for body in recipe["bodies"]:
             print(f"  cavità {x1 - x0:.3f} x {y1 - y0:.3f} x {depth:.3f}, "
                   f"fondo a {floor:.3f}")
 
+    # Le cupole si fondono *dopo* la cavità e *prima* dei fori: una cupola è
+    # materiale che sporge dalla parete, e i fori che la attraversano devono
+    # trovarcela.
+    for cap in body.get("caps", []):
+        cupola = cupola_orientata(cap)
+        solid = solid.fuse(cupola).removeSplitter()
+        semi = " x ".join(f"{float(v):.3f}" for v in cap["semi"].values())
+        print(f"  cupola asse {cap['axis']} semiassi {semi} "
+              f"altezza {float(cap['altezza']):.3f}")
+
     for bore in body.get("bores", []):
         diameter = float(bore["diameter"])
         depth = float(bore["depth"])
-        cx, cy, cz = (float(v) for v in bore["center"])
-        axis = {"X": Vector(1, 0, 0), "Y": Vector(0, 1, 0)}.get(bore["axis"],
-                                                                Vector(0, 0, 1))
-        start = Vector(cx, cy, cz) - axis.multiply((depth + 1.0) / 2.0)
-        cylinder = Part.makeCylinder(diameter / 2.0, depth + 1.0, start,
-                                     Vector(*{"X": (1, 0, 0), "Y": (0, 1, 0)}.get(
-                                         bore["axis"], (0, 0, 1))))
-        solid = solid.cut(cylinder)
-        print(f"  foro Ø{diameter:.3f} asse {bore['axis']} in "
-              f"({cx:.3f}, {cy:.3f}, {cz:.3f})")
+        centre = Vector(*(float(v) for v in bore["center"]))
+        direction = bore.get("direction")
+        if direction:
+            axis = Vector(*(float(v) for v in direction))
+        else:
+            axis = ASSI.get(bore.get("axis"), Vector(0, 0, 1))
+        axis = axis.normalize()
+        lungo = depth + 1.0
+        start = centre - Vector(axis.x * lungo / 2.0, axis.y * lungo / 2.0,
+                                axis.z * lungo / 2.0)
+        solid = solid.cut(Part.makeCylinder(diameter / 2.0, lungo, start, axis))
+        etichetta = bore.get("axis") or (
+            "inclinato %.1f°" % math.degrees(math.acos(min(1.0, max(
+                abs(axis.x), abs(axis.y), abs(axis.z))))))
+        print(f"  foro Ø{diameter:.3f} asse {etichetta} in "
+              f"({centre.x:.3f}, {centre.y:.3f}, {centre.z:.3f})")
 
     solids.append(solid)
 

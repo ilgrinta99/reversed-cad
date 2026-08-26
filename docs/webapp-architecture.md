@@ -181,6 +181,19 @@ richiamo con nome e misura, incolonnato fuori dalla vista perché due impronte
 vicine non diano due testi sovrapposti. Il foglio del registro le censisce tutte
 per corpo e per tipo.
 
+**Il repertorio si è allargato dove la misura lo permetteva.** «Superficie libera»
+non è una proprietà del pezzo: è il limite del riconoscitore. La cupola del TAISER
+era catalogata come libera dalla FASE 1, e non lo era — è un paraboloide ellittico,
+e provare a interpolarla lo dimostra: rms 0.016 mm contro 1.443 mm come sfera.
+`patches.py` prova ora il paraboloide dopo piano, cilindro e sfera, con gli stessi
+criteri di accettazione, e solo ad assi coordinati (un paraboloide obliquo non si
+quota su una vista ortogonale e il costruttore non saprebbe dove metterlo). Le
+quote che entrano nel modello restano misure dirette dell'ingombro della patch —
+semiassi del bordo, altezza, centro: il fit decide *che cosa* è quella superficie,
+non *quanto* misura. Stessa storia per i cilindri ad asse inclinato: un cilindro
+*intero* è un foro anche se storto, e la sua direzione è una misura come le altre;
+un *arco* obliquo resta dichiarato.
+
 E le censisce guardando la **ricetta**, non il flag `buildable`: `buildable` dice
 se il repertorio *saprebbe* costruire una feature, non se l'ha costruita. Con la
 decisione «asole = fori» un'asola entra nel solido pur restando `buildable=False`,

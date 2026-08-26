@@ -18,6 +18,7 @@ l'ingombro reale di ogni proiezione — si sceglie la scala e si impagina (`fogl
 
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 from typing import Any
 
@@ -73,6 +74,10 @@ IMPRONTA_MINIMA_MM = 2.0
 #: illeggibile: le altre restano disegnate e numerate, e il registro le elenca tutte.
 MAX_RICHIAMI_OMESSE = 5
 
+#: Quanti richiami stanno in una colonna prima di ricominciare dall'alto. Sette
+#: passi da 7 mm sono 49 mm: quanto basta a stare accanto a una vista di un A3.
+MAX_RICHIAMI_IN_COLONNA = 7
+
 #: Due posizioni più vicine di così sono la stessa posizione: serve a riconoscere
 #: se un foro dell'analisi è *quel* foro della ricetta.
 TOLLERANZA_POSIZIONE = 1e-3
@@ -97,6 +102,10 @@ def _num(v: float) -> str:
 
 def _ha_interno(body: dict) -> bool:
     return bool(body.get("cavity")) or bool(body.get("bores"))
+
+
+def _cupole(body: dict) -> list[dict]:
+    return list(body.get("caps", []))
 
 
 def _centro(body: dict) -> list[float]:
@@ -154,7 +163,8 @@ def _quota_sezione_c(body: dict) -> float:
 
     Altrimenti a metà della cavità, dove le pareti si vedono tutte e quattro.
     """
-    orizzontali = [b for b in body.get("bores", []) if b.get("axis") in ("X", "Y")]
+    orizzontali = [b for b in body.get("bores", [])
+                   if _asse_di_lettura(b)[0] in ("X", "Y")]
     if orizzontali:
         return float(orizzontali[0]["center"][2])
     cavity = body.get("cavity")
@@ -213,9 +223,9 @@ MARGINE_RICHIAMO, PASSO_RICHIAMO = 13.0, 7.0
 
 def _scostamento_richiamo(punto, box, scala: float, ordine: int,
                           destra: bool) -> tuple[float, float]:
-    """Il testo va in colonna fuori dalla vista, non a distanza fissa dall'impronta.
+    """Il testo va in colonna fuori dalla vista, non a distanza fissa dal punto.
 
-    Due impronte vicine di due millimetri, con lo stesso scostamento, danno due
+    Due feature vicine di due millimetri, con lo stesso scostamento, danno due
     testi sovrapposti: a doversi spaziare è la posizione *sul foglio*, non la
     lunghezza della linea di richiamo. Qui la colonna parte dal bordo alto della
     vista e scende di un passo per ogni richiamo già uscito da quel lato.
@@ -224,6 +234,37 @@ def _scostamento_richiamo(punto, box, scala: float, ordine: int,
     bordo = (x1 if destra else x0) - punto[0]
     return (bordo * scala + (MARGINE_RICHIAMO if destra else -MARGINE_RICHIAMO),
             (y1 - punto[1]) * scala - PASSO_RICHIAMO * ordine)
+
+
+def _incolonna(richiami: list[tavola.Richiamo], key: str, body: dict,
+               scala: float) -> list[tavola.Richiamo]:
+    """Ridispone i richiami di un foglio in colonne fuori dalle viste.
+
+    Ogni richiamo nasce sapendo *cosa* dire e *dove* puntare, non dove scriversi:
+    con uno scostamento fisso, due fori vicini producevano due testi uno sopra
+    l'altro, e un foglio con sei feature era illeggibile. Qui si guarda il foglio
+    intero: per ogni vista e per ogni lato, i testi scendono in colonna a passo
+    costante, e la linea di richiamo si allunga fino al suo punto.
+
+    La colonna è alta `PASSO_RICHIAMO` per richiamo: quando finisce lo spazio si
+    riparte dall'alto, che è meglio di scrivere sotto il cartiglio.
+    """
+    origine = [float(v) for v in body["origin"]]
+    estremo = [o + float(s) for o, s in zip(origine, body["size"])]
+    per_lato: dict[tuple[str, bool], int] = {}
+    fuori: list[tavola.Richiamo] = []
+    for richiamo in richiami:
+        nome = richiamo.vista[len(key) + 1:]
+        if nome not in ASSI:
+            fuori.append(richiamo)
+            continue
+        box = _punto_vista(nome, origine) + _punto_vista(nome, estremo)
+        destra = richiamo.punto[0] >= (box[0] + box[2]) / 2.0
+        ordine = per_lato.get((nome, destra), 0)
+        per_lato[(nome, destra)] = ordine + 1
+        fuori.append(replace(richiamo, scostamento=_scostamento_richiamo(
+            richiamo.punto, box, scala, ordine % MAX_RICHIAMI_IN_COLONNA, destra)))
+    return fuori
 
 
 def _omesse_sulle_viste(key: str, body: dict, omesse: list[dict], scala: float
@@ -449,7 +490,25 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
     aggiungi(f"{key}_laterale", f"{key}_ingombro_z", (oy, oz), (oy, oz + sz), -14.0,
              orizzontale=False)
 
+    quote.extend(_quote_cupole(key, body, valori, scala))
+
     richiami = list(_richiami_fori(key, body, valori))
+    for indice, cap in enumerate(_cupole(body), start=1):
+        frontale = _VISTA_DI_ASSE[str(cap["axis"])]
+        semi = [valori.get(f"{key}_cupola{indice}_semiasse_{a.lower()}")
+                for a in "XYZ" if a != cap["axis"]]
+        if any(v is None for v in semi):
+            continue
+        oi, oj = ASSI[frontale]
+        centro = [float(v) for v in cap["centro"]]
+        angolo = list(centro)
+        angolo[oi] += semi[0] * 0.71
+        angolo[oj] += semi[1] * 0.71
+        richiami.append(tavola.Richiamo(
+            f"{key}_{frontale}", _punto_vista(frontale, angolo), (18.0, 16.0),
+            (f"cupola {indice}: paraboloide ellittico",
+             f"asse {cap['axis']}, sporgenza {_num(float(cap['altezza']))}")))
+
     raggio = body.get("fillet")
     if raggio:
         richiami.append(tavola.Richiamo(
@@ -477,6 +536,10 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
     impronte, richiami_omesse = _omesse_sulle_viste(key, body, list(omesse or []), scala)
     sagome.extend(impronte)
     richiami.extend(richiami_omesse)
+
+    # I richiami si dispongono solo adesso, quando il foglio li ha tutti: da soli
+    # non sanno di essere in compagnia, e uno scostamento fisso li accatasta.
+    richiami = _incolonna(richiami, key, body, scala)
 
     # La fascia note del cartiglio tiene tre righe più la mesh di partenza: le
     # legende si accorpano invece di spingersi fuori dal riquadro a vicenda.
@@ -507,6 +570,76 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
 _VISTA_DI_ASSE = {"Z": "pianta", "Y": "prospetto", "X": "laterale"}
 
 
+def _fuori_dalla_vista(body: dict, nome: str, punto, orizzontale: bool,
+                       scala: float, margine: float) -> float:
+    """Scostamento che porta una linea di quota fuori dall'ingombro del corpo.
+
+    Una quota tracciata *dentro* la vista attraversa gli spigoli che dovrebbe
+    misurare. Quanto stia fuori dipende dalla scala, quindi non può essere un
+    numero fisso nel codice: si calcola da dove finisce il corpo su quella vista.
+    """
+    origine = [float(v) for v in body["origin"]]
+    estremo = [o + float(s) for o, s in zip(origine, body["size"])]
+    x0, y0 = _punto_vista(nome, origine)
+    x1, y1 = _punto_vista(nome, estremo)
+    if orizzontale:
+        return (y0 - punto[1]) * scala - margine
+    return (x1 - punto[0]) * scala + margine
+
+
+def _quote_cupole(key: str, body: dict, valori: dict[str, float], scala: float):
+    """Le quote di ogni cupola: i due assi del bordo dove si vede l'ellisse, e
+    l'altezza su una vista che la guarda di taglio.
+
+    Una cupola vista lungo il proprio asse è un'ellisse e si quota come tale; vista
+    di lato è un profilo alto quanto la sporgenza. Servono tutte e due: dalla sola
+    ellisse non si sa quanto sporge, dalla sola sporgenza non si sa quanto è larga.
+    """
+    for indice, cap in enumerate(_cupole(body), start=1):
+        asse = str(cap["axis"])
+        k = "XYZ".index(asse)
+        i, j = [q for q in range(3) if q != k]
+        centro = [float(v) for v in cap["centro"]]
+        semi = {a: valori.get(f"{key}_cupola{indice}_semiasse_{a.lower()}")
+                for a in "XYZ"}
+        altezza = valori.get(f"{key}_cupola{indice}_altezza")
+
+        # Vista in cui l'asse esce dal foglio: lì il bordo è l'ellisse vera.
+        frontale = _VISTA_DI_ASSE[asse]
+        oi, oj = ASSI[frontale]
+        for indice_asse, margine, orizzontale in ((oi, 30.0, True), (oj, 22.0, False)):
+            mezzo = semi["XYZ"[indice_asse]]
+            if mezzo is None:
+                continue
+            p1 = list(centro)
+            p2 = list(centro)
+            p1[indice_asse] = centro[indice_asse] - mezzo
+            p2[indice_asse] = centro[indice_asse] + mezzo
+            a, b = _punto_vista(frontale, p1), _punto_vista(frontale, p2)
+            yield tavola.Quota(
+                f"{key}_{frontale}", a, b,
+                _fuori_dalla_vista(body, frontale, a, orizzontale, scala, margine),
+                _num(2.0 * mezzo), orizzontale=orizzontale)
+
+        # Vista di taglio: una qualsiasi in cui l'asse della cupola giace nel
+        # foglio. Lì si quota la sporgenza, che è l'unica cosa che non si vede
+        # nell'ellisse.
+        if altezza is None:
+            continue
+        laterale = _VISTA_DI_ASSE["XYZ"[i]]
+        verso = 1.0 if float(cap.get("verso", 1)) >= 0 else -1.0
+        base = list(centro)
+        apice = list(centro)
+        apice[k] = centro[k] - verso * altezza
+        assi_vista = ASSI[laterale]
+        orizzontale = assi_vista[1] != k
+        a, b = _punto_vista(laterale, apice), _punto_vista(laterale, base)
+        yield tavola.Quota(
+            f"{key}_{laterale}", a, b,
+            _fuori_dalla_vista(body, laterale, a, orizzontale, scala, 14.0),
+            _num(altezza), orizzontale=orizzontale)
+
+
 def _richiami_fori(key: str, body: dict, valori: dict[str, float]):
     """Richiami dei fori, con i pattern collassati in un richiamo solo.
 
@@ -523,7 +656,10 @@ def _richiami_fori(key: str, body: dict, valori: dict[str, float]):
     # I pattern si cercano fra fori cilindrici (con diametro) e sulla stessa vista,
     # cioè con lo stesso asse: fori su assi diversi stanno su viste diverse.
     for asse in ("Z", "Y", "X"):
-        candidati = [r for r in records if r["asse"] == asse and r["d"] is not None]
+        # Un foro inclinato non entra in un pattern: «4× Ø3» prometterebbe
+        # quattro fori uguali, e uno inclinato non è uguale agli altri.
+        candidati = [r for r in records
+                     if r["asse"] == asse and r["d"] is not None and not r["inclinato"]]
         if len(candidati) < 3:
             continue
         fori2d = [patterns.Foro2D(r["punto"][0], r["punto"][1], r["d"] / 2.0, ref=r)
@@ -546,14 +682,32 @@ def _richiami_fori(key: str, body: dict, valori: dict[str, float]):
             yield richiamo
 
 
+def _asse_di_lettura(bore: dict) -> tuple[str, str]:
+    """Su quale asse si legge un foro, e come si chiama nel richiamo.
+
+    Un foro inclinato si legge sulla vista dell'asse a cui somiglia di più — è lì
+    che il suo contorno si riconosce — ma il richiamo dice l'inclinazione vera,
+    altrimenti la tavola prometterebbe un foro perpendicolare che non c'è.
+    """
+    direzione = bore.get("direction")
+    if not direzione:
+        asse = bore.get("axis") or "Z"
+        return asse, asse
+    vicino = max(range(3), key=lambda k: abs(float(direzione[k])))
+    gradi = math.degrees(math.acos(min(1.0, abs(float(direzione[vicino])))))
+    nome = "XYZ"[vicino]
+    return nome, f"{nome} inclinato {gradi:.1f}°"
+
+
 def _record_fori(key: str, body: dict, valori: dict[str, float]) -> list[dict]:
     """Un dizionario per foro con quel che serve a quotarlo: vista, punto, valori."""
     records = []
     for i, bore in enumerate(body.get("bores", []), start=1):
-        asse = bore.get("axis", "Z")
+        asse, etichetta = _asse_di_lettura(bore)
         nome = _VISTA_DI_ASSE.get(asse, "pianta")
         records.append({
-            "i": i, "asse": asse,
+            "i": i, "asse": asse, "etichetta_asse": etichetta,
+            "inclinato": bool(bore.get("direction")),
             "vista": f"{key}_{nome}",
             "punto": _punto_vista(nome, bore["center"]),
             "d": valori.get(f"{key}_foro{i}_diametro"),
@@ -571,8 +725,8 @@ def _profondita_uniforme(recs: list[dict]) -> bool:
 
 
 def _riga_profondita(r: dict) -> str:
-    return (f"profondità {_num(r['p'])}  asse {r['asse']}"
-            if r["p"] is not None else f"asse {r['asse']}")
+    return (f"profondità {_num(r['p'])}  asse {r['etichetta_asse']}"
+            if r["p"] is not None else f"asse {r['etichetta_asse']}")
 
 
 def _richiamo_singolo(r: dict) -> tavola.Richiamo | None:
@@ -749,17 +903,18 @@ def _nel_modello(feature: dict, recipe: dict | None) -> bool:
     kind = feature.get("kind")
     if kind in ("prisma", "cavita"):
         return kind != "cavita" or bool(corpo.get("cavity"))
-    if kind not in ("foro", "asola"):
+    if kind not in ("foro", "asola", "cupola"):
         return False                       # libera, sfera, cilindro, arco
     p = feature.get("params", {})
     try:
         centro = [float(p[f"centro_{a}"]) for a in "xyz"]
     except (KeyError, TypeError, ValueError):
         return False
+    posti = ([c.get("centro", ()) for c in corpo.get("caps", [])] if kind == "cupola"
+             else [b.get("center", ()) for b in corpo.get("bores", [])])
     return any(
-        all(abs(c - float(d)) <= TOLLERANZA_POSIZIONE
-            for c, d in zip(centro, bore.get("center", ())))
-        for bore in corpo.get("bores", []) if len(bore.get("center", ())) == 3
+        all(abs(c - float(d)) <= TOLLERANZA_POSIZIONE for c, d in zip(centro, posto))
+        for posto in posti if len(posto) == 3
     )
 
 

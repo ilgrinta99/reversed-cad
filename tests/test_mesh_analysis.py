@@ -9,6 +9,8 @@ atteso è verificabile leggendo il test.
 from __future__ import annotations
 
 import math
+
+import numpy as np
 from pathlib import Path
 
 import pytest
@@ -286,3 +288,156 @@ def test_ogni_feature_non_costruibile_porta_la_sua_posizione():
         for chiave in ("origine_x", "origine_y", "origine_z", "dx", "dy", "dz",
                        "centro_x", "centro_y", "centro_z", "area"):
             assert chiave in feature.params, f"{feature.label} senza «{chiave}»"
+
+
+def paraboloid_obj(path: Path, centro_bordo, semi, altezza, asse: int = 2,
+                   verso: int = 1, n: int = 48, anelli: int = 8) -> Path:
+    """Scrive un OBJ: una cupola a paraboloide ellittico chiusa da un disco.
+
+    È la forma vera delle cupole che escono dai modellatori per hobbisti: la
+    scrivo qui con la sua equazione, così i numeri attesi nel test sono quelli
+    che ho messo dentro e non quelli che il codice restituisce.
+    """
+    i, j = [q for q in range(3) if q != asse]
+    lines: list[str] = []
+    def punto(u: float, v: float, w: float) -> None:
+        p = [0.0, 0.0, 0.0]
+        p[i], p[j], p[asse] = u, v, w
+        lines.append("v %.6f %.6f %.6f" % tuple(p))
+
+    punto(centro_bordo[i], centro_bordo[j],
+          centro_bordo[asse] - verso * altezza)              # 1: vertice
+    for a in range(1, anelli + 1):
+        t = a / anelli
+        for k in range(n):
+            th = 2.0 * math.pi * k / n
+            punto(centro_bordo[i] + semi[0] * t * math.cos(th),
+                  centro_bordo[j] + semi[1] * t * math.sin(th),
+                  centro_bordo[asse] - verso * altezza * (1.0 - t * t))
+    base = 1 + anelli * n + 1
+    punto(centro_bordo[i], centro_bordo[j], centro_bordo[asse])   # centro del disco
+
+    faces = [(1, 2 + k, 2 + (k + 1) % n) for k in range(n)]
+    for a in range(anelli - 1):
+        p, q = 2 + a * n, 2 + (a + 1) * n
+        for k in range(n):
+            k2 = (k + 1) % n
+            faces.append((p + k, q + k, q + k2))
+            faces.append((p + k, q + k2, p + k2))
+    ultimo = 2 + (anelli - 1) * n
+    faces.extend((base, ultimo + (k + 1) % n, ultimo + k) for k in range(n))
+    path.write_text("\n".join(lines + [f"f {a} {b} {c}" for a, b, c in faces]) + "\n")
+    return path
+
+
+def test_una_cupola_e_un_paraboloide_e_viene_misurata(tmp_path: Path):
+    """La forma si riconosce, e le quote che ne escono sono quelle del file.
+
+    Il punto non è che l'analisi trovi «una cupola»: è che il semiasse che scrive
+    in tabella sia quello con cui la cupola è stata scritta. Una forma
+    riconosciuta e misurata male è peggio di una non riconosciuta.
+    """
+    mesh = paraboloid_obj(tmp_path / "cupola.obj", (5.0, 3.0, 10.0),
+                          (12.0, 7.0), 4.0, asse=2, verso=1)
+    analysis = analyze(mesh)
+    cupole = [f for f in analysis.features if f.kind == "cupola"]
+    assert len(cupole) == 1
+    cupola = cupole[0]
+    assert cupola.buildable
+    assert cupola.params["semiasse_x"] == pytest.approx(12.0, abs=0.05)
+    assert cupola.params["semiasse_y"] == pytest.approx(7.0, abs=0.05)
+    assert cupola.params["altezza"] == pytest.approx(4.0, abs=0.02)
+    # Il centro è quello del *bordo*, e il verso dice da che parte sta il vertice.
+    assert cupola.params["centro_z"] == pytest.approx(10.0, abs=0.02)
+    assert cupola.params["verso"] == pytest.approx(1.0)
+
+    quote = {m.id for m in analysis.measurements}
+    assert {"c1_cupola1_semiasse_x", "c1_cupola1_semiasse_y",
+            "c1_cupola1_altezza"} <= quote
+
+
+def test_una_sfera_non_diventa_una_cupola(tmp_path: Path):
+    """Il paraboloide si prova per ultimo: dove la sfera spiega, spiega la sfera."""
+    analysis = analyze(sphere_obj(tmp_path / "sfera.obj", (0.0, 0.0, 0.0), 5.0))
+    assert [f.kind for f in analysis.features if f.kind == "cupola"] == []
+    assert any(f.kind == "sfera" for f in analysis.features)
+
+
+def test_la_cupola_del_pezzo_vero_smette_di_essere_una_superficie_libera():
+    """Sul TAISER la cupola era «né piano né cilindro né sfera» dalla FASE 1.
+
+    Non lo era: è un paraboloide ellittico, e come sfera dava un errore di fit
+    cento volte più grande. Adesso è una feature costruibile con tre quote.
+    """
+    mesh = Path("input/model.obj")
+    if not mesh.is_file():
+        pytest.skip("input/model.obj non disponibile")
+    analysis = analyze(mesh)
+    cupole = [f for f in analysis.features if f.kind == "cupola"]
+    assert len(cupole) == 1
+    cupola = cupole[0]
+    assert cupola.params["altezza"] == pytest.approx(6.140, abs=1e-3)
+    assert cupola.params["semiasse_y"] == pytest.approx(17.459, abs=1e-3)
+    assert cupola.params["semiasse_z"] == pytest.approx(8.225, abs=1e-3)
+    assert cupola.params["verso"] == pytest.approx(-1.0)
+
+
+def test_un_cilindro_obliquo_intero_e_un_foro_non_una_presenza():
+    """Girargli intorno per tutto il diametro è la prova che è un foro.
+
+    Sulla mesh di prova i due fori della cupola escono a 21.8° dalla parete: erano
+    scartati perché l'asse non è coordinato, e non finivano né fra i fori né da
+    nessun'altra parte. Un arco obliquo invece resta dichiarato: di quella testata
+    non si sa nemmeno di che feature è.
+    """
+    mesh = Path("input/model.obj")
+    if not mesh.is_file():
+        pytest.skip("input/model.obj non disponibile")
+    analysis = analyze(mesh)
+    # Sul TAISER i due cilindri obliqui sono archi da 90°, e restano dichiarati.
+    obliqui = [f for f in analysis.features
+               if f.kind == "foro" and "direzione_x" in f.params]
+    assert obliqui == []
+    assert any(f.kind == "cilindro" and not f.buildable for f in analysis.features)
+
+
+def tube_obj(path: Path, centro, direzione, raggio: float, lunghezza: float,
+             n: int = 40) -> Path:
+    """Scrive un OBJ: la sola superficie cilindrica di un foro, con l'asse dato."""
+    d = np.asarray(direzione, dtype=float)
+    d = d / np.linalg.norm(d)
+    seme = np.array([1.0, 0.0, 0.0]) if abs(d[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    u = np.cross(d, seme)
+    u = u / np.linalg.norm(u)
+    v = np.cross(d, u)
+    c = np.asarray(centro, dtype=float)
+    lines = []
+    for segno in (-0.5, 0.5):
+        base = c + d * (segno * lunghezza)
+        for k in range(n):
+            th = 2.0 * math.pi * k / n
+            p = base + raggio * (math.cos(th) * u + math.sin(th) * v)
+            lines.append("v %.6f %.6f %.6f" % tuple(p))
+    faces = []
+    for k in range(n):
+        k2 = (k + 1) % n
+        faces.append((1 + k, 1 + n + k, 1 + n + k2))
+        faces.append((1 + k, 1 + n + k2, 1 + k2))
+    path.write_text("\n".join(lines + [f"f {a} {b} {c}" for a, b, c in faces]) + "\n")
+    return path
+
+
+def test_un_foro_inclinato_porta_la_sua_direzione(tmp_path: Path):
+    """Il foro c'è, il diametro è quello, e la tavola sa che non è perpendicolare."""
+    mesh = tube_obj(tmp_path / "foro.obj", (2.0, 1.0, 3.0), (0.3714, 0.9285, 0.0),
+                    1.25, 8.0)
+    analysis = analyze(mesh)
+    fori = [f for f in analysis.features if f.kind == "foro"]
+    assert len(fori) == 1
+    foro = fori[0]
+    assert foro.buildable
+    assert foro.params["diametro"] == pytest.approx(2.5, abs=0.02)
+    assert foro.params["direzione_y"] == pytest.approx(0.9285, abs=1e-3)
+    assert "inclinato" in foro.note
+    # E non finisce fra le presenze dichiarate: è nel modello.
+    assert not any(f.kind == "cilindro" for f in analysis.features)

@@ -48,8 +48,9 @@ python -m pytest tests/ -q
   in `docs/CONVENTIONS.md`: se c'è dentro un numero del TAISER, sta in `parts/`.
 - `parts/auto/` è il percorso predefinito e non contiene numeri del pezzo: misura
   la mesh e la ricostruisce con un repertorio dichiarato (prisma, raccordo,
-  cavità, fori). Quello che non sa fare lo dichiara come feature non
-  ricostruibile: non lo approssima.
+  cavità, cupola, fori anche inclinati). Quello che non sa fare lo dichiara come
+  feature non ricostruibile — con posizione e ingombro, e con l'impronta sulle
+  viste della tavola: non lo approssima e non lo tace.
 - La regola non negoziabile qui sopra è codice in `core/provenance/`, non una
   convenzione: una build con quote non misurate né approvate **non parte**.
 - I formati di mesh li dichiara `core/mesh/loader.py`, e da lì li prendono sia

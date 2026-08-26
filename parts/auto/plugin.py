@@ -198,9 +198,7 @@ class AutoPart:
                   for p, d in zip(samples, distances)]
         stats = deviation.write(out, points, {
             body["name"]: {
-                "stats": deviation.stats_from(
-                    _distance_to_box(samples, np.asarray(body["origin"]),
-                                     np.asarray(body["origin"]) + np.asarray(body["size"]))),
+                "stats": deviation.stats_from(_distance_to_body(samples, body)),
                 "campionati": len(points), "totali": len(points), "worst": [],
             }
             for body in recipe["bodies"]
@@ -257,6 +255,7 @@ class AutoPart:
                 "size": size,
                 "fillet": _fillet(values, key),
                 "cavity": _cavity(values, body, key),
+                "caps": _caps(values, analysis, key),
                 "bores": _bores(values, analysis, key, slots_as_bores),
             })
         if not bodies:
@@ -284,6 +283,41 @@ def _cavity(values: dict[str, float], body: dict, key: str) -> dict | None:
     return {"depth": depth, "floor": floor, "walls": walls}
 
 
+def _caps(values: dict[str, float], analysis: dict, key: str) -> list[dict]:
+    """Le cupole del corpo, con i semiassi e l'altezza presi dal registro.
+
+    Il centro del bordo e il verso vengono dall'analisi come per ogni altra
+    posizione: sono *dove* sta la feature, non *quanto* misura. Se una delle tre
+    quote non è nel registro la cupola non si costruisce — e resta dichiarata
+    fra le feature che il modello non porta, come qualunque altra.
+    """
+    body = next((b for b in analysis["bodies"] if b["key"] == key), None)
+    if body is None:
+        return []
+    out = []
+    for index, feature in enumerate(
+            [f for f in analysis["features"]
+             if f["kind"] == "cupola" and f["body"] == body["name"]], start=1):
+        params = feature["params"]
+        asse = feature["note"].split()[-1][0]
+        semi = {}
+        for nome in "XYZ":
+            quota = values.get(f"{key}_cupola{index}_semiasse_{nome.lower()}")
+            if quota is not None:
+                semi[nome] = quota
+        altezza = values.get(f"{key}_cupola{index}_altezza")
+        if altezza is None or len(semi) != 2:
+            continue
+        out.append({
+            "axis": asse,
+            "verso": int(params.get("verso", 1)),
+            "semi": semi,
+            "altezza": altezza,
+            "centro": [params["centro_x"], params["centro_y"], params["centro_z"]],
+        })
+    return out
+
+
 def _bores(values: dict[str, float], analysis: dict, key: str,
            slots_as_bores: bool) -> list[dict]:
     out = []
@@ -304,8 +338,13 @@ def _bores(values: dict[str, float], analysis: dict, key: str,
         params = feature["params"]
         if diameter is None or depth is None or "centro_x" not in params:
             continue
+        # Un foro inclinato porta la sua direzione misurata; uno coordinato porta
+        # solo il nome dell'asse, ed è la stessa cosa scritta più corta.
+        direzione = [params[f"direzione_{k}"] for k in "xyz"] \
+            if all(f"direzione_{k}" in params for k in "xyz") else None
         out.append({
-            "axis": feature["note"].split()[-1],
+            "axis": None if direzione else feature["note"].split()[-1],
+            "direction": direzione,
             "diameter": diameter,
             "depth": depth,
             "center": [params["centro_x"], params["centro_y"], params["centro_z"]],
@@ -337,11 +376,61 @@ def _distance_to_recipe(points: np.ndarray, recipe: dict) -> np.ndarray:
     """Distanza dalla superficie più vicina fra quelle dei corpi costruiti."""
     best = None
     for body in recipe["bodies"]:
-        low = np.asarray(body["origin"], dtype=float)
-        high = low + np.asarray(body["size"], dtype=float)
-        d = _distance_to_box(points, low, high)
+        d = _distance_to_body(points, body)
         best = d if best is None else np.minimum(best, d)
     return best if best is not None else np.zeros(len(points))
+
+
+def _distance_to_body(points: np.ndarray, body: dict) -> np.ndarray:
+    """Distanza dalla superficie di un corpo: prisma, cavità e cupole.
+
+    La cavità conta quanto il prisma. Senza, un punto sul fondo interno risultava
+    lontano quanto è spesso il fondo — e la tavola dichiarava uno scostamento che
+    era solo il modello di confronto a non sapere che lì il pezzo è vuoto.
+    """
+    low = np.asarray(body["origin"], dtype=float)
+    high = low + np.asarray(body["size"], dtype=float)
+    best = _distance_to_box(points, low, high)
+    cavity = body.get("cavity")
+    if cavity:
+        walls = cavity.get("walls", {})
+        dentro_low = low + np.array([float(walls.get("X-min", 0.0)),
+                                     float(walls.get("Y-min", 0.0)),
+                                     float(cavity["floor"])])
+        dentro_high = np.array([high[0] - float(walls.get("X-max", 0.0)),
+                                high[1] - float(walls.get("Y-max", 0.0)),
+                                high[2]])
+        if (dentro_high > dentro_low).all():
+            best = np.minimum(best, _distance_to_box(points, dentro_low, dentro_high))
+    for cap in body.get("caps", []):
+        best = np.minimum(best, _distance_to_cap(points, cap))
+    return best
+
+
+def _distance_to_cap(points: np.ndarray, cap: dict) -> np.ndarray:
+    """Distanza dalla superficie di una cupola, lungo il suo asse.
+
+    Approssimazione dichiarata: si misura lo scarto *lungo l'asse* diviso il
+    modulo del gradiente — la stessa distanza punto-superficie che `patches.py`
+    usa per accettare il fit. Fuori dal bordo la cupola non c'è, e il punto resta
+    al prisma: qui si restituisce infinito e ci pensa il minimo.
+    """
+    k = "XYZ".index(cap["axis"])
+    i, j = [q for q in range(3) if q != k]
+    verso = 1.0 if float(cap.get("verso", 1)) >= 0 else -1.0
+    centro = np.asarray([float(v) for v in cap["centro"]])
+    semi = [float(cap["semi"]["XYZ"[q]]) for q in (i, j)]
+    altezza = float(cap["altezza"])
+    du = (points[:, i] - centro[i]) / semi[0]
+    dv = (points[:, j] - centro[j]) / semi[1]
+    t = du ** 2 + dv ** 2
+    atteso = centro[k] - verso * altezza * (1.0 - t)
+    # Pendenza della superficie nei due assi trasversali, per passare dallo
+    # scarto lungo l'asse alla distanza dalla superficie.
+    gu = 2.0 * altezza * du / semi[0]
+    gv = 2.0 * altezza * dv / semi[1]
+    distance = np.abs(points[:, k] - atteso) / np.sqrt(1.0 + gu ** 2 + gv ** 2)
+    return np.where(t <= 1.0, distance, np.inf)
 
 
 #: Vista -> (asse tagliato, assi che restano). Gli assi residui di `cross_section`
