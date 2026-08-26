@@ -26,8 +26,14 @@ export default function DrawingPreview({ runId, sheets }) {
 
   return (
     <div className="panel">
-      <h2>5 · Tavola</h2>
-      {sheets.length === 0 && <p className="hint">Disponibile dopo lo step «Tavola».</p>}
+      <h2>Il disegno</h2>
+      {sheets.length === 0
+        ? <p className="hint">Compare dopo «Avvia».</p>
+        : <p className="hint">
+            Fogli A3 quotati. Il contorno viola segna dove il file di partenza ha
+            qualcosa che il modello non porta; la linea rossa a tratti è il profilo
+            vero della mesh, sovrapposto per confronto.
+          </p>}
       {sheets.length > 1 && (
         <div className="row" style={{ marginBottom: 10 }}>
           {sheets.map((name, i) => (

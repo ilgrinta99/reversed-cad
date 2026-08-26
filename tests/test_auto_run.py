@@ -170,3 +170,30 @@ def test_la_decisione_fermati_blocca_la_ricetta(client, tmp_path_factory):
     job = wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/draw").json()["id"])
     assert job["state"] == "failed"
     assert "superfici_libere" in job["error"]
+
+
+def test_il_riepilogo_racconta_il_run_in_italiano(client, box_obj: Path):
+    """L'endpoint che regge la lettura normale della pagina.
+
+    Prima dell'analisi non racconta niente — inventare uno stato sarebbe la cosa
+    peggiore —; dopo, dice cos'ha trovato con parole che non presuppongono di
+    sapere cos'è un paraboloide.
+    """
+    run = create(client, box_obj)      # un run suo: la fixture di modulo è già analizzata
+    prima = client.get(f"/api/runs/{run['id']}/summary").json()
+    assert prima["stato"] == "da_analizzare"
+    assert prima["frasi"] == []
+
+    wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/analyze").json()["id"])
+    dopo = client.get(f"/api/runs/{run['id']}/summary").json()
+    assert dopo["stato"] == "analizzato"
+    assert dopo["frasi"] and "pezzo" in dopo["frasi"][0]
+    # Niente gergo: nessun identificatore di quota nelle frasi.
+    assert not any("_" in frase for frase in dopo["frasi"])
+
+
+def test_ogni_domanda_arriva_al_client_anche_in_chiaro(client, run):
+    wait_job(client, client.post(f"/api/runs/{run['id']}/jobs/analyze").json()["id"])
+    decisions = client.get(f"/api/runs/{run['id']}/decisions").json()["decisions"]
+    for d in decisions:
+        assert d["plain"], f"{d['id']} arriva senza formulazione in chiaro"

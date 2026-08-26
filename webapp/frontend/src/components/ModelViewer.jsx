@@ -11,7 +11,10 @@ export default function ModelViewer({ runId, modelPath, hasModel, hasDeviation }
   const mount = useRef(null)
   const [error, setError] = useState(null)
   const [stats, setStats] = useState(null)
-  const [showDeviation, setShowDeviation] = useState(true)
+  // Spenta all'apertura: la prima cosa da vedere è il modello, non le sue
+  // imperfezioni. Le differenze restano a un clic — e il riepilogo le ha già
+  // dette in millimetri, quindi nessuno le scopre solo qui.
+  const [showDeviation, setShowDeviation] = useState(false)
   const deviationRef = useRef(null)
 
   useEffect(() => {
@@ -105,30 +108,31 @@ export default function ModelViewer({ runId, modelPath, hasModel, hasDeviation }
   if (!hasModel) {
     return (
       <div className="panel">
-        <h2>4 · Anteprima 3D</h2>
-        <p className="hint">Disponibile dopo la build.</p>
+        <h2>Il modello ricostruito</h2>
+        <p className="hint">Compare dopo «Avvia».</p>
       </div>
     )
   }
 
   return (
     <div className="panel">
-      <h2>4 · Anteprima 3D e scostamento</h2>
+      <h2>Il modello ricostruito</h2>
       <p className="hint">
-        In blu il solido costruito; i punti sono i vertici della mesh campionati dal
-        confronto, colorati per distanza dalla superficie del modello — verde vicino,
-        rosso lontano.
+        In blu il solido che ho costruito. I puntini sono presi dal file di
+        partenza e sono colorati per quanto se ne discosta il modello: verde dove
+        combacia, rosso dove no.
       </p>
       <div className="row" style={{ marginBottom: 10 }}>
         <label>
           <input type="checkbox" checked={showDeviation} disabled={!hasDeviation}
                  onChange={(e) => setShowDeviation(e.target.checked)} />{' '}
-          mostra la mappa di scostamento
+          colora le differenze
         </label>
         {stats && (
           <span className="provenance">
-            mediana {stats.mediana_mm.toFixed(3)} mm · p90 {stats.p90_mm.toFixed(3)} mm ·
-            p99 {stats.p99_mm.toFixed(3)} mm · max {stats.max_mm.toFixed(3)} mm
+            metà dei punti entro {stats.mediana_mm.toFixed(3)} mm ·
+            nove su dieci entro {stats.p90_mm.toFixed(3)} mm ·
+            il peggiore a {stats.max_mm.toFixed(3)} mm
           </span>
         )}
       </div>

@@ -5,7 +5,8 @@ non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la
 è una tavola anche lì, con viste proiettate, sezioni, quote e assonometria.
 FASE 9: la mesh può essere OBJ, STL, PLY o WRL. FASE 10: quello che il modello
 non porta si vede sulla tavola, con posizione e ingombro. FASE 11: la cupola non
-era una superficie libera — è un paraboloide, e adesso si costruisce.
+era una superficie libera — è un paraboloide, e adesso si costruisce. FASE 12: la
+pagina si legge senza essere del mestiere.
 **Aggiornato:** 2026-08-26
 
 ## Fatto
@@ -26,6 +27,8 @@ era una superficie libera — è un paraboloide, e adesso si costruisce.
       è dichiarata con posizione e ingombro, e ha la sua impronta sulle viste
 - [x] FASE 11 — cupole (paraboloidi ellittici) e fori inclinati nel repertorio:
       scostamento mediano da 2.347 a 0.027 mm sulla mesh di prova
+- [x] FASE 12 — UX: un pulsante, un riepilogo in italiano comune, e il gergo
+      dietro l'interruttore «Modalità tecnica»
 
 ## Uscite
 | file | contenuto |
@@ -273,6 +276,53 @@ Nello stesso giro il confronto ha smesso di mentire sulle cavità: misurava la
 distanza dal solo prisma esterno, quindi un punto sul fondo interno risultava
 lontano quanto è spesso il fondo. Ora `_distance_to_body` conta prisma, cavità e
 cupole.
+
+### La pagina si legge senza essere del mestiere (FASE 12)
+
+Prova su una persona che non ha mai visto il progetto: sette pannelli numerati,
+sette pulsanti «Esegui» in un ordine da conoscere, e un vocabolario — provenance,
+registro delle quote, ambiguità, feature non ricostruibili, scostamento p90,
+`c1_cupola1_semiasse_x` — che è quello giusto per chi il pezzo lo fabbrica e muto
+per tutti gli altri. Il risultato era che *non si capiva se le cose fossero andate
+bene*, che è l'unica cosa che si vuole sapere aprendo l'app.
+
+La pagina ha ora due letture, e nessuna delle due nasconde niente all'altra.
+
+**Normale.** Un pulsante — `Avvia` — che esegue i quattro passaggi in fila (sono
+sempre negli stessi quattro, in quest'ordine: non è una scelta da chiedere, è una
+sequenza da eseguire), e sotto un riquadro **«Com'è andata»** in italiano comune:
+
+> Il file contiene 6 pezzi e 33 dettagli (fori, cavità, curve).
+> Ne ho ricostruiti 9 su 33; 12 smussi, 4 forme libere, 4 asole e altri 2 tipi
+> restano fuori dal modello, segnati sul disegno.
+> Il modello ricalca il file di partenza: si discosta di 0,027 mm nella metà dei
+> punti misurati.
+
+Poi due colonne — *nel modello* / *fuori dal modello* — il 3D, la tavola, e
+quattro file con il loro nome («Il disegno tecnico», «Il modello 3D») invece di
+venti path allo stesso livello.
+
+**Tecnica.** L'interruttore in alto riapre tutto: i quattro passaggi singoli con i
+log, la tabella completa delle quote, il registro di ogni file, le varianti.
+
+Tre scelte che valgono più delle altre:
+
+1. **Le frasi le scrive il backend** (`parts/auto/summary.py`), non il frontend:
+   le parole con cui si descrive il lavoro sono parte del lavoro. E rileggono i
+   file del run — non sono una seconda verità accanto ai numeri. Un test verifica
+   che riepilogo e tavola contino le stesse feature: se divergessero, uno dei due
+   mentirebbe e non si saprebbe quale.
+2. **Ogni domanda ha una formulazione in chiaro** (`Decision.plain`), che è la
+   prima riga che si legge; «Perché te lo sto chiedendo» apre quella tecnica con
+   le misure che l'hanno fatta nascere. Una domanda che non si capisce non è una
+   domanda.
+3. **Lo scostamento è detto anche a parole.** «mediana 0.027 mm» è la cifra giusta
+   e non dice niente a chi non sa rispetto a cosa. Il giudizio («ricalca», «è una
+   semplificazione», «è una semplificazione grossolana») la accompagna, non la
+   sostituisce — e non basta uno scostamento minimo per dire «fedele»: se metà
+   dei dettagli è rimasta fuori, il riepilogo dice «ricostruito in parte», perché
+   lo scostamento pesa i *punti* della mesh e una cupola fitta di triangoli lo
+   tiene basso da sola.
 
 ### Aperto sulla web app
 1. **Immagine Docker mai costruita davvero.** FreeCAD conda-forge è stato verificato

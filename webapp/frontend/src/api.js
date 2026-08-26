@@ -36,6 +36,7 @@ export const api = {
   getRun: (id) => req(`/runs/${id}`),
   forkRun: (id) => req(`/runs/${id}/fork`, { method: 'POST' }),
   readiness: (id) => req(`/runs/${id}/readiness`),
+  summary: (id) => req(`/runs/${id}/summary`),
   dimensions: (id) => req(`/runs/${id}/dimensions`),
   decisions: (id) => req(`/runs/${id}/decisions`),
 

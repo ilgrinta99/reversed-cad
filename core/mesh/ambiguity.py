@@ -142,6 +142,8 @@ def _non_circular_roundings(analysis: MeshAnalysis, registry: Registry) -> list[
                 id=base,
                 kind=DecisionKind.AMBIGUITY,
                 title=f"Raccordo non circolare · {body.name} {rounding['edge']}",
+                plain="Questo spigolo è smussato in modo diverso sui due lati: non "
+                      "esiste un raggio solo che lo descriva. Quale uso?",
                 question="Ricostruisco lo spigolo come raccordo circolare, e con quale "
                          "raggio, oppure lo lascio ellittico come la mesh lo porta?",
                 evidence=(
@@ -191,6 +193,8 @@ def _asymmetric_walls(analysis: MeshAnalysis, registry: Registry) -> list[Decisi
             id=f"{body.key}_pareti",
             kind=DecisionKind.AMBIGUITY,
             title=f"Spessore di parete asimmetrico · {body.name}",
+            plain="Le pareti non hanno tutte lo stesso spessore. Le lascio come "
+                  "sono o le pareggio?",
             question="Uniformo le pareti a un unico spessore, o mantengo "
                      "l'asimmetria che la mesh misura?",
             evidence=(
@@ -231,6 +235,8 @@ def _slots(analysis: MeshAnalysis) -> list[Decision]:
             id=f"{body.key}_asole",
             kind=DecisionKind.AMBIGUITY,
             title=f"Asole o fori circolari · {body.name}",
+            plain="Ci sono aperture allungate, tipo occhiello. Le tengo così o le "
+                  "faccio rotonde?",
             question="Le riproduco come asole fedeli alla mesh, o come fori "
                      "circolari del diametro misurato sulle testate?",
             evidence=(
@@ -269,6 +275,9 @@ def _unpaired_arcs(analysis: MeshAnalysis) -> list[Decision]:
         id="archi_parziali",
         kind=DecisionKind.AMBIGUITY,
         title=f"{len(arcs)} archi cilindrici parziali",
+        plain=f"Ho trovato {len(arcs)} pezzi di superficie curva che non fanno un "
+              f"giro intero. Sono smussi di spigolo, o il bordo di qualcosa che il "
+              f"file non chiude?",
         question="Sono raccordi di spigolo, o testate di feature che la mesh non chiude?",
         evidence=(
             f"{len(arcs)} porzioni di cilindro non arrivano a un giro completo e non "
@@ -301,6 +310,8 @@ def _free_surfaces(analysis: MeshAnalysis) -> list[Decision]:
         id="superfici_libere",
         kind=DecisionKind.AMBIGUITY,
         title="Superfici non riconducibili a una primitiva",
+        plain="Alcune forme non le so ricostruire. Le lascio fuori dal modello — "
+              "segnandole sul disegno — o mi fermo qui?",
         question="Costruisco il modello senza queste superfici, o mi fermo qui?",
         evidence=(
             f"{len(surfaces)} superfici per {total:.0f} mm² non sono né piani né "
@@ -336,6 +347,8 @@ def _multiple_bodies(analysis: MeshAnalysis) -> list[Decision]:
         id="corpi",
         kind=DecisionKind.AMBIGUITY,
         title=f"{len(analysis.bodies)} corpi separati nella mesh",
+        plain=f"Il file contiene {len(analysis.bodies)} pezzi staccati fra loro. "
+              f"Li ricostruisco tutti o solo il più grande?",
         question="Sono tutti parte del pezzo, o solo il principale lo è?",
         evidence=(
             f"La mesh contiene {len(analysis.bodies)} gruppi di triangoli connessi, "
@@ -372,6 +385,8 @@ def _datum(analysis: MeshAnalysis, registry: Registry) -> list[Decision]:
         id="datum",
         kind=DecisionKind.AMBIGUITY,
         title="Origine della mesh arbitraria",
+        plain="Il punto zero del file non sta in un posto riconoscibile del pezzo. "
+              "Lo lascio dov'è o lo sposto su uno spigolo?",
         question="Tengo il sistema di riferimento della mesh, o riporto l'origine "
                  "al centro della base?",
         evidence=(
@@ -442,6 +457,8 @@ def _rounding(analysis: MeshAnalysis, registry: Registry) -> list[Decision]:
         id="arrotondamento",
         kind=DecisionKind.AMBIGUITY,
         title="Arrotondamento congruente delle quote",
+        plain="Le misure hanno molti decimali perché vengono da un file "
+              "triangolato. Le arrotondo tutte allo stesso modo?",
         question="Porto le quote a valori tondi, con lo stesso passo per tutte, "
                  "o tengo la misura?",
         evidence=(

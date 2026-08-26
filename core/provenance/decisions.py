@@ -68,6 +68,11 @@ class Decision:
     title: str
     question: str
     options: tuple[Option, ...]
+    #: La stessa domanda in una riga, senza gergo: è quella che si legge per
+    #: prima, e deve bastare a rispondere. `question` ed `evidence` restano —
+    #: chi vuole il perché tecnico lo trova sotto — ma non sono la prima cosa
+    #: che si incontra: una domanda che non si capisce non è una domanda.
+    plain: str = ""
     #: Perché la domanda esiste: cosa dice la mesh, cosa dice il disegno, dove
     #: sono in disaccordo. Senza questo l'utente non può decidere davvero.
     evidence: str = ""
@@ -138,6 +143,7 @@ class Decision:
             "kind": self.kind.value,
             "title": self.title,
             "question": self.question,
+            "plain": self.plain,
             "evidence": self.evidence,
             "reference": self.reference,
             "options": [o.to_dict() for o in self.options],

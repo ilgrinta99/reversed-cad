@@ -60,6 +60,12 @@ python -m pytest tests/ -q
   proietta le viste (`project_script.py`, HLR di TechDraw) e ne scrive gli spigoli
   2D in JSON; impaginazione, quote e i tre formati di uscita sono Python puro.
   *Cosa* disegnare lo decide chi compone la tavola (`parts/auto/drawing.py`).
+- La pagina ha due letture: quella normale (un pulsante, il riepilogo in italiano
+  di `parts/auto/summary.py`, il 3D, la tavola, quattro file) e quella tecnica
+  dietro l'interruttore — passaggi singoli, tabella delle quote, tutti i file.
+  Il gergo non è stato tolto: è stato messo dietro. Le frasi del riepilogo le
+  scrive il backend, perché le parole con cui si descrive il lavoro sono parte
+  del lavoro.
 - Architettura e stato: `docs/webapp-architecture.md`.
 
 ## Ambiente

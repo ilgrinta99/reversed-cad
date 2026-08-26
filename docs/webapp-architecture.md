@@ -59,7 +59,8 @@ core/                     GENERICO — nessuna conoscenza del pezzo
 parts/
   auto/                   NESSUN PEZZO — misura la mesh e la ricostruisce
                           con un repertorio dichiarato: prisma, raccordo,
-                          cavità, fori
+                          cavità, cupola, fori anche inclinati; e la racconta
+                          in italiano comune (summary.py)
   teiser/                 SPECIFICO DEL PEZZO
     schema.py             schema di params.json (pydantic) — quote e loro provenienza
     extract.py            orchestrazione dei tools/ di misura per questo pezzo
@@ -118,7 +119,7 @@ lettura avviene in tre passaggi, tutti in `core/mesh/`:
 | Modulo | Cosa risponde |
 |---|---|
 | `loader.py` | quale lettore serve per questo file, e cosa manca a quel formato: topologia (STL), nomi dei corpi (STL binario, PLY), precisione doppia (STL, PLY binario) |
-| `patches.py` | di quanti corpi è fatta la mesh, e di quali superfici ogni corpo (piano, cilindro, sfera, libera) |
+| `patches.py` | di quanti corpi è fatta la mesh, e di quali superfici ogni corpo (piano, cilindro, sfera, paraboloide, libera) |
 | `analysis.py` | quali quote quelle superfici *dimostrano*: ingombri, facce esterne, spessori di parete, cavità, arrotondamenti degli spigoli, fori e asole, simmetria, datum |
 | `ambiguity.py` | dove la misura non è conclusiva, e con quali opzioni numeriche |
 | `sections.py` | sezioni piane, aree dei contorni, fit di cerchi — il supporto alle prime due |
@@ -200,6 +201,41 @@ decisione «asole = fori» un'asola entra nel solido pur restando `buildable=Fal
 e con «corpi = principale» un prisma perfettamente costruibile resta fuori.
 Elencare fra le omesse una feature che il solido contiene è la stessa bugia di
 tacerne una che non contiene, al contrario.
+
+### 3.3 Due letture della stessa pagina
+
+Il rigore ha un costo di comprensibilità e il progetto lo aveva pagato tutto in
+una volta: sette pannelli numerati, sette pulsanti «Esegui» in un ordine da
+conoscere, e un vocabolario — provenance, ambiguità, feature non ricostruibili,
+scostamento p90, `c1_cupola1_semiasse_x` — corretto e muto per chiunque non
+conosca già il progetto. Il risultato è che *non si capiva se fosse andata bene*.
+
+Nessuna di queste cose è stata tolta: sono state messe dietro un interruttore.
+
+| Lettura | Cosa si vede |
+|---|---|
+| normale | un pulsante `Avvia` che esegue i quattro passaggi in fila, il riquadro «Com'è andata» in italiano comune, il 3D, la tavola, quattro file col loro nome |
+| tecnica | in più: i quattro passaggi singoli con i log, la tabella completa delle quote, il registro di tutti i file, le varianti |
+
+Le frasi del riepilogo le scrive **il backend** (`parts/auto/summary.py`),
+rileggendo `analysis.json`, `recipe.json` e `deviation.json`: non calcola niente
+di nuovo e non è una seconda verità accanto ai numeri. `tests/test_riepilogo.py`
+verifica che riepilogo e tavola contino le stesse feature — se divergessero, uno
+dei due mentirebbe e non si saprebbe quale.
+
+Due dettagli che valgono la regola generale:
+
+* **`Decision.plain`.** Ogni domanda ha una formulazione in una riga senza gergo,
+  ed è quella che si legge per prima; «Perché te lo sto chiedendo» apre la
+  formulazione tecnica con le misure che l'hanno fatta nascere. Una domanda che
+  non si capisce non è una domanda, ed è il posto in cui la precisione fa più
+  danno: è l'unico punto in cui l'utente deve *decidere*.
+* **Il giudizio accompagna la cifra, non la sostituisce.** «si discosta di 0,027
+  mm nella metà dei punti misurati» viene sempre con «ricalca il file di
+  partenza» o «è una semplificazione grossolana». E uno scostamento minimo non
+  basta a dire «fedele»: lo scostamento pesa i *punti* della mesh, quindi una
+  cupola fitta di triangoli lo tiene basso anche con dieci smussi rimasti fuori.
+  Quando la copertura è sotto l'80 % il riepilogo dice «ricostruito in parte».
 
 ## 4. FreeCAD headless: le regole non negoziabili del runner
 

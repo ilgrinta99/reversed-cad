@@ -32,15 +32,17 @@ export default function UploadPanel({ onCreated, formats }) {
 
   return (
     <form className="panel" onSubmit={submit}>
-      <h2>1 · Caricamento</h2>
+      <h2>Carica il file da ricostruire</h2>
       <p className="hint">
-        La mesh caricata è l'unica fonte di quote, e l'analisi parte da questo
-        file: ingombri, pareti, raccordi, fori e ambiguità vengono misurati qui,
-        non letti da un modello di riferimento. Il .mtl e gli altri allegati
-        restano materiale di consultazione — una tavola TinkerCAD è generata dalla
-        mesh stessa, quindi non è una fonte indipendente e non autorizza alcun
-        numero. Le misure si assumono in millimetri: nessuno di questi formati
-        porta un'unità, e indovinarla non si può.
+        Tutte le misure escono da questo file e da nient'altro: ingombri, pareti,
+        smussi, fori e cupole li leggo qui. Gli allegati (il .mtl, una foto, un
+        PDF) restano materiale di consultazione e non autorizzano nessun numero —
+        anche una tavola esportata da TinkerCAD è generata dalla mesh stessa,
+        quindi non conferma niente.
+      </p>
+      <p className="hint">
+        <strong>Le misure si intendono in millimetri.</strong> Nessuno di questi
+        formati porta l'unità scritta dentro, e indovinarla non si può.
       </p>
 
       <div className="row">
@@ -54,7 +56,7 @@ export default function UploadPanel({ onCreated, formats }) {
           <input type="file" multiple onChange={(e) => setReferences([...e.target.files])} />
         </label>
         <label>
-          Titolo{' '}
+          Nome della prova{' '}
           <input value={title} onChange={(e) => setTitle(e.target.value)}
                  placeholder="facoltativo" />
         </label>
@@ -62,7 +64,7 @@ export default function UploadPanel({ onCreated, formats }) {
 
       <div className="row" style={{ marginTop: 14 }}>
         <button className="primary" type="submit" disabled={busy || !mesh}>
-          {busy ? 'Caricamento…' : 'Carica e apri il run'}
+          {busy ? 'Caricamento…' : 'Carica il file'}
         </button>
       </div>
       {error && <p className="error">{error}</p>}

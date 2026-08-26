@@ -249,6 +249,21 @@ def readiness(run_id: str) -> dict[str, Any]:
     }
 
 
+@router.get("/runs/{run_id}/summary")
+def summary(run_id: str) -> dict[str, Any]:
+    """Il run in tre frasi, senza gergo. Vedi `parts/auto/summary.py`.
+
+    Non è una seconda verità accanto ai numeri: li rilegge e li racconta. Chi ha
+    bisogno delle cifre esatte ha già `/dimensions`, `/readiness` e gli artefatti;
+    chi apre l'app per la prima volta ha bisogno di sapere se le cose sono andate
+    bene, e quella risposta finora non c'era da nessuna parte.
+    """
+    from parts.auto.summary import riassumi
+
+    run = _run(run_id)
+    return riassumi(run.dir)
+
+
 # -- job --------------------------------------------------------------------
 
 
