@@ -92,3 +92,27 @@ def test_senza_cupole_la_ricetta_costruisce_quel_che_costruiva_prima(tmp_path):
     ingombro = [float(v) for v in
                 log.split("ingombro verificato:")[1].split()[0:5:2]]
     assert ingombro == pytest.approx([40.0, 25.0, 12.0], abs=1e-6)
+
+
+@needs_freecad
+def test_un_asola_si_taglia_col_suo_corpo_non_con_un_foro(tmp_path):
+    """Due testate e un corpo: il taglio è uno stadio, non un cerchio."""
+    bore = {"kind": "asola", "dim": "c1_asola1", "axis": "Z", "direction": None,
+            "diameter": 4.0, "depth": 12.0, "center": [20.0, 12.5, 6.0],
+            "slot": True, "length": 8.0, "long": [1.0, 0.0, 0.0]}
+    step, log = _costruisci(tmp_path, _ricetta(bores=[bore]))
+    assert step.is_file()
+    assert "asola 8.000 x 4.000" in log
+
+
+@needs_freecad
+def test_un_apertura_rettangolare_si_taglia_davvero(tmp_path):
+    """Il vano misurato diventa un taglio: la scatola della ricetta, asportata."""
+    bore = {"kind": "finestra", "dim": "c1_finestra1", "axis": "Y",
+            "rect": [16.0, -0.5, 4.0, 24.0, 2.0, 8.0], "depth": 2.5,
+            "center": [20.0, 0.75, 6.0],
+            "misure": {"larghezza_x": 8.0, "larghezza_z": 4.0}}
+    step, log = _costruisci(tmp_path, _ricetta(bores=[bore]))
+    assert step.is_file()
+    assert "apertura 2.500" in log
+    assert _ingombro(log) == pytest.approx([40.0, 25.0, 12.0], abs=1e-6)

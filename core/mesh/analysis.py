@@ -120,13 +120,28 @@ class BodyAnalysis:
     name: str
     body: Body
     outer: dict[str, Patch] = field(default_factory=dict)   # "X-min" → patch
+    #: Facce esterne che la tassellazione ha fuso con un raccordo di base. La
+    #: patch non è un piano — il suo ingombro include la fascia del raccordo — ma
+    #: l'esterno del corpo passa di lì, e senza questa lettura la parete non
+    #: esiste: la cavità verrebbe tagliata a tutto spessore e i fori non
+    #: troverebbero materiale da asportare. Servono a misurare gli spessori, non
+    #: a leggere raccordi: lì l'ingombro mentirebbe e si resta su `outer`.
+    soft_outer: dict[str, Patch] = field(default_factory=dict)
     walls: dict[str, float] = field(default_factory=dict)   # "X-min" → spessore
     cavity_floor: float | None = None
     cavity_top: float | None = None
+    #: (x0, y0, x1, y1) dei quattro lati interni della cavità, in coordinate di
+    #: mesh. La cavità non si ricava dall'ingombro del corpo: una sporgenza lo
+    #: gonfia, e la tasca finirebbe dentro la sporgenza.
+    cavity_box: tuple[float, float, float, float] | None = None
     roundings: list[dict[str, Any]] = field(default_factory=list)
     holes: list[dict[str, Any]] = field(default_factory=list)
     #: Archi cilindrici parziali rimasti spaiati: né fori né testate di asola.
     arcs: list[dict[str, Any]] = field(default_factory=list)
+    #: Aperture e tasche rettangolari: quattro facce piane che formano un canale.
+    #: Un foro o un'asola si riconoscono da un cilindro; un'apertura rettangolare
+    #: non ha cilindri, e senza questa lettura spariva fra l'analisi e la tavola.
+    windows: list[dict[str, Any]] = field(default_factory=list)
     free_patches: list[Patch] = field(default_factory=list)
     #: Cupole: paraboloidi ellittici ad asse coordinato. Bordo, altezza e verso.
     caps: list[dict[str, Any]] = field(default_factory=list)
@@ -176,6 +191,8 @@ class MeshAnalysis:
                     "free_patches": len(b.free_patches),
                     "omesse": len(b.omitted),
                     "walls": dict(b.walls),
+                    "cavity_box": (None if b.cavity_box is None
+                                   else [float(v) for v in b.cavity_box]),
                     "symmetry": dict(b.symmetry),
                 }
                 for b in self.bodies
@@ -211,10 +228,15 @@ def analyze(path_or_mesh, *, max_bodies: int = 8, log=lambda msg: None) -> MeshA
         analysis = BodyAnalysis(key=f"c{index}", name=_unique_name(body, index, bodies),
                                 body=body)
         _read_outer_faces(analysis)
-        _read_walls(analysis)
         _read_cavity(analysis)
+        # Dietro la cavità: una faccia è «esterna» solo se sta *fuori* dalla
+        # cavità. Senza questo ordine la faccia interna della parete opposta
+        # passerebbe per faccia esterna, e la parete non si misurerebbe più.
+        _read_outer_faces_dietro(analysis)
+        _read_walls(analysis)
         _read_roundings(analysis)
         _read_holes(analysis, mesh)
+        _read_windows(analysis)
         _read_caps(analysis)
         _read_spheres(analysis)
         _read_free_patches(analysis)
@@ -294,6 +316,92 @@ def _read_outer_faces(a: BodyAnalysis) -> None:
                     best = patch
             if best is not None:
                 a.outer[f"{axis}-{side}"] = best
+                continue
+            # Nessun piano *sul contorno*: la faccia è fusa col raccordo di base
+            # e la patch è «libera». Il contorno del corpo passa comunque di lì —
+            # l'ingombro lo dice — e la parete si misura da questa presenza.
+            best = _soft_outer(a, k, side, limit)
+            if best is not None:
+                a.soft_outer[f"{axis}-{side}"] = best
+
+
+def _read_outer_faces_dietro(a: BodyAnalysis) -> None:
+    """La faccia esterna che una sporgenza nasconde al contorno.
+
+    La cupola del TAISER esce di 6.14 mm oltre la parete destra: il contorno del
+    corpo è il vertice della cupola, non la parete. Il piano della parete però
+    c'è, copre la sezione, e sta **fuori dalla cavità**: è quello. Il vincolo
+    sulla cavità è ciò che distingue la parete destra dalla faccia interna della
+    parete sinistra — che guarda anch'essa verso +X, ma sta dentro la cavità.
+    """
+    if a.cavity_box is None:
+        return
+    extents = a.body.extents
+    for k, axis in enumerate(AXES):
+        if k == 2:
+            continue        # la cavità è aperta in alto: su Z non dice dov'è il filo
+        for side in ("min", "max"):
+            key = f"{axis}-{side}"
+            if key in a.outer:
+                continue
+            limite = a.cavity_box[k] if side == "min" else a.cavity_box[2 + k]
+            outward = -1.0 if side == "min" else 1.0
+            best: Patch | None = None
+            best_pos: float | None = None
+            for patch in a.body.planes_normal_to(axis):
+                if patch.area < MIN_FACE_AREA:
+                    continue
+                if np.sign(patch.normal[k]) != outward:
+                    continue
+                pos = float(patch.bbox_min[k]) if side == "min" else float(patch.bbox_max[k])
+                if outward * (pos - limite) <= SAME:
+                    continue                    # dentro la cavità: non è la parete
+                copre = True
+                for j in range(3):
+                    if j == k:
+                        continue
+                    if float(patch.bbox_max[j] - patch.bbox_min[j]) < \
+                            MIN_WALL_COVERAGE * float(extents[j]):
+                        copre = False
+                        break
+                if not copre:
+                    continue
+                if best is None or outward * pos > outward * best_pos:
+                    best, best_pos = patch, pos
+            if best is not None:
+                a.outer[key] = best
+                a.soft_outer.pop(key, None)
+
+
+def _soft_outer(a: BodyAnalysis, k: int, side: str, limit: float) -> Patch | None:
+    """La patch non piana il cui ingombro tocca il contorno su quel lato.
+
+    Non è una faccia piana e non si finge che lo sia: se ne prende solo la
+    posizione esterna, che è l'unica cosa che una parete chiede. Una patch che
+    arriva al contorno ma è piccola — il labbro di una tasca, un raccordo locale —
+    non copre la sezione del corpo e non viene presa.
+    """
+    extents = a.body.extents
+    best: Patch | None = None
+    for patch in a.body.patches:
+        if patch.area < MIN_FACE_AREA:
+            continue
+        reach = float(patch.bbox_min[k]) if side == "min" else float(patch.bbox_max[k])
+        if abs(reach - limit) > OUTER_TOL:
+            continue
+        copre = True
+        for j in range(3):
+            if j == k:
+                continue
+            span = float(patch.bbox_max[j] - patch.bbox_min[j])
+            if span < MIN_FACE_FRACTION * float(extents[j]):
+                copre = False
+                break
+        if not copre:
+            continue
+        if best is None or patch.area > best.area:
+            best = patch
+    return best
 
 
 def _read_walls(a: BodyAnalysis) -> None:
@@ -302,12 +410,20 @@ def _read_walls(a: BodyAnalysis) -> None:
     «Di fronte» ha un significato preciso: normale opposta, e sovrapposizione
     sugli altri due assi. Senza quel controllo la parete di un lato verrebbe
     misurata contro la faccia interna del lato opposto.
+
+    Le facce esterne fuse col raccordo (`soft_outer`) contano come le altre: la
+    loro posizione è il contorno, e la faccia interna che sta davanti è la parete.
+    La sovrapposizione lì si chiede sulle estensioni del *corpo*, non su quelle
+    della patch: l'ingombro di una patch fusa col raccordo si ferma prima della
+    parete interna, e misurata su di sé la copertura non arriverebbe mai.
     """
-    faces = set(id(p) for p in a.outer.values())
-    for key, outer in a.outer.items():
+    faces = set(id(p) for p in list(a.outer.values()) + list(a.soft_outer.values()))
+    soft_ids = {id(p) for p in a.soft_outer.values()}
+    for key, outer in {**a.outer, **a.soft_outer}.items():
         axis, side = key.split("-")
         k = AXES.index(axis)
-        outer_pos = float(outer.bbox_min[k])
+        outer_pos = (float(outer.bbox_min[k]) if side == "min"
+                     else float(outer.bbox_max[k]))
         inward = 1.0 if side == "min" else -1.0
         best: tuple[float, Patch] | None = None
         for patch in a.body.planes_normal_to(axis):
@@ -317,10 +433,16 @@ def _read_walls(a: BodyAnalysis) -> None:
                 continue
             if np.sign(patch.normal[k]) != inward:
                 continue
-            thickness = (float(patch.bbox_min[k]) - outer_pos) * inward
+            if side == "min":
+                thickness = float(patch.bbox_min[k]) - outer_pos
+            else:
+                thickness = outer_pos - float(patch.bbox_max[k])
             if thickness <= SAME:
                 continue
-            if not _covers(outer, patch, skip=k):
+            if id(outer) in soft_ids:
+                if not _covers_body(a, patch, skip=k):
+                    continue
+            elif not _covers(outer, patch, skip=k):
                 continue
             if best is None or thickness < best[0]:
                 best = (thickness, patch)
@@ -347,8 +469,32 @@ def _covers(outer: Patch, inner: Patch, *, skip: int) -> bool:
     return True
 
 
+def _covers_body(a: BodyAnalysis, inner: Patch, *, skip: int) -> bool:
+    """La faccia interna copre una parte significativa della sezione del corpo?
+
+    È il criterio per le pareti lette su una faccia esterna non piana: la patch
+    esterna non può fare da metro (il raccordo la taglia), quindi il metro è il
+    corpo. Oltre metà della sezione: una tasca, un labbro, un rilievo non ci
+    arrivano, e restano fuori.
+    """
+    extents = a.body.extents
+    for k in range(3):
+        if k == skip:
+            continue
+        if float(inner.bbox_max[k] - inner.bbox_min[k]) < MIN_WALL_COVERAGE * float(extents[k]):
+            return False
+    return True
+
+
 def _read_cavity(a: BodyAnalysis) -> None:
-    """Cavità: un piano orizzontale interno rivolto verso l'alto, sotto il bordo."""
+    """Cavità: un piano orizzontale interno rivolto verso l'alto, sotto il bordo.
+
+    Con il fondo si misurano anche le pareti interne che lo circondano: sono
+    piani che salgono dal fondo e coprono la sezione del corpo. Da lì esce la
+    *scatola* della cavità in coordinate assolute, che è ciò che serve a chi
+    costruisce quando il corpo porta una sporgenza: la tasca non si ricava più
+    dall'ingombro, che la sporgenza la gonfia, ma dai suoi quattro lati.
+    """
     top = a.outer.get("Z-max")
     z_top = float(top.bbox_min[2]) if top is not None else float(a.body.bbox_max[2])
     floor: Patch | None = None
@@ -364,6 +510,31 @@ def _read_cavity(a: BodyAnalysis) -> None:
         return
     a.cavity_floor = float(floor.bbox_min[2])
     a.cavity_top = z_top
+
+    lati: dict[tuple[int, str], float] = {}
+    for k, axis in enumerate(AXES):
+        if k == 2:
+            continue
+        for side, inward in (("min", 1.0), ("max", -1.0)):
+            best: Patch | None = None
+            for patch in a.body.planes_normal_to(axis):
+                if patch.area < MIN_FACE_AREA:
+                    continue
+                if np.sign(patch.normal[k]) != inward:
+                    continue
+                pos = float(patch.bbox_min[k])
+                if not (float(a.body.bbox_min[k]) + SAME
+                        < pos < float(a.body.bbox_max[k]) - SAME):
+                    continue
+                if not _covers_body(a, patch, skip=k):
+                    continue
+                if best is None or patch.area > best.area:
+                    best = patch
+            if best is not None:
+                lati[(k, side)] = float(best.bbox_min[k])
+    if len(lati) == 4:
+        a.cavity_box = (lati[(0, "min")], lati[(1, "min")],
+                        lati[(0, "max")], lati[(1, "max")])
 
 
 def _read_roundings(a: BodyAnalysis) -> None:
@@ -603,8 +774,9 @@ def _slots_from_arcs(arcs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 continue
             if abs(second["depth"] - first["depth"]) > max(0.05 * first["depth"], SAME):
                 continue
-            gap = float(np.linalg.norm(np.asarray(first["center"])
-                                       - np.asarray(second["center"])))
+            scarto = np.asarray(second["center"], dtype=float) \
+                - np.asarray(first["center"], dtype=float)
+            gap = float(np.linalg.norm(scarto))
             if gap <= SAME or gap > MAX_SLOT_GAP_RADII * first["radius"]:
                 continue
             first["paired"] = second["paired"] = True
@@ -619,9 +791,95 @@ def _slots_from_arcs(arcs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "width": 2.0 * first["radius"],
                 "length": 2.0 * first["radius"] + gap,
                 "interasse": gap,
+                # La direzione lunga dell'asola: le due testate la dimostrano, e
+                # senza di essa il costruttore non saprebbe da che parte allungarla.
+                "lungo": [float(v) / gap for v in scarto],
                 "area": first["area"] + second["area"],
             })
             break
+    return out
+
+
+def _read_windows(a: BodyAnalysis) -> None:
+    """Aperture e tasche rettangolari: quattro piani che formano un canale.
+
+    Un foro ha un cilindro che lo dimostra; un'apertura rettangolare no — è
+    quattro facce piane che si guardano, due per lato della sezione, con lo
+    stesso spessore di materiale intorno. Da lì escono la sezione del vano e la
+    profondità: quanto basta a tagliarlo nel modello, e a vederlo in sezione.
+    """
+    piani = [p for p in a.body.of_kind("plane") if p.area >= MIN_FACE_AREA]
+    trovati: list[dict[str, Any]] = []
+    for b in range(3):
+        j, l = [q for q in range(3) if q != b]
+        for pa, pb, jlo, jhi in _coppie_antiparallele(piani, j, b, l):
+            llo, lhi = float(pa.bbox_min[l]), float(pa.bbox_max[l])
+            if lhi - llo <= SAME:
+                continue
+            for pc, pd, l2lo, l2hi in _coppie_antiparallele(piani, l, b, j):
+                if (abs(float(pc.bbox_min[j]) - jlo) > OUTER_TOL
+                        or abs(float(pc.bbox_max[j]) - jhi) > OUTER_TOL):
+                    continue
+                if abs(l2lo - llo) > OUTER_TOL or abs(l2hi - lhi) > OUTER_TOL:
+                    continue
+                if not (float(a.body.bbox_min[j]) + SAME < jlo
+                        and jhi < float(a.body.bbox_max[j]) - SAME):
+                    continue
+                if not (float(a.body.bbox_min[l]) + SAME < llo
+                        and lhi < float(a.body.bbox_max[l]) - SAME):
+                    continue
+                blo, bhi = float(pa.bbox_min[b]), float(pa.bbox_max[b])
+                if bhi - blo <= SAME or bhi - blo > 0.5 * float(a.body.extents[b]):
+                    continue
+                centro = [0.0, 0.0, 0.0]
+                centro[j], centro[l], centro[b] = (jlo + jhi) / 2.0, (llo + lhi) / 2.0, (blo + bhi) / 2.0
+                vano = [0.0, 0.0, 0.0]
+                vano[j], vano[l], vano[b] = jhi - jlo, lhi - llo, bhi - blo
+                trovati.append({
+                    "axis": AXES[b],
+                    "assi_sezione": (AXES[j], AXES[l]),
+                    "center": centro,
+                    "spans": vano,
+                    "estensione": [blo, bhi],
+                    "area": float(pa.area) + float(pb.area) + float(pc.area) + float(pd.area),
+                })
+    visti: set[tuple] = set()
+    for vano in trovati:
+        chiave = (vano["axis"],) + tuple(round(v, 3) for v in
+                                         vano["center"] + vano["spans"])
+        if chiave in visti:
+            continue
+        visti.add(chiave)
+        a.windows.append(vano)
+    a.windows.sort(key=lambda w: -w["area"])
+
+
+def _coppie_antiparallele(planes: list[Patch], k: int, b: int,
+                          l: int) -> list[tuple[Patch, Patch, float, float]]:
+    """Coppie di piani antiparalleli che delimitano un canale sull'asse `k`.
+
+    Stessa estensione su `b` (la profondità del canale) e su `l` (la larghezza):
+    due facce che non combaciano non sono i due lati dello stesso vano. La faccia
+    minore deve guardare verso l'interno del canale, o sarebbe il fianco di un
+    rilievo, non il lato di un'apertura.
+    """
+    out = []
+    for pa in planes:
+        for pb in planes:
+            if pa is pb or pa.normal[k] * pb.normal[k] >= 0:
+                continue
+            if (abs(float(pa.bbox_min[b]) - float(pb.bbox_min[b])) > OUTER_TOL
+                    or abs(float(pa.bbox_max[b]) - float(pb.bbox_max[b])) > OUTER_TOL
+                    or abs(float(pa.bbox_min[l]) - float(pb.bbox_min[l])) > OUTER_TOL
+                    or abs(float(pa.bbox_max[l]) - float(pb.bbox_max[l])) > OUTER_TOL):
+                continue
+            lo, hi = sorted((float(pa.bbox_min[k]), float(pb.bbox_min[k])))
+            if hi - lo <= SAME:
+                continue
+            minore = pa if float(pa.bbox_min[k]) < float(pb.bbox_min[k]) else pb
+            if minore.normal[k] < 0:
+                continue
+            out.append((pa, pb, lo, hi))
     return out
 
 
@@ -703,6 +961,17 @@ def _measurements_of(a: BodyAnalysis) -> list[Measurement]:
             cap["altezza"], note=f"paraboloide ellittico asse {cap['axis']}, "
                                  f"rms del fit {cap['rms']:.4f}")
 
+    for index, vano in enumerate(a.windows, start=1):
+        assi = vano["assi_sezione"]
+        for axis in assi:
+            k = AXES.index(axis)
+            add(f"finestra{index}_{axis.lower()}",
+                f"apertura {index} · {axis}", vano["spans"][k],
+                note="estensione della sezione fra due facce parallele")
+        add(f"finestra{index}_profondita", f"apertura {index} · profondità",
+            vano["spans"][AXES.index(vano["axis"])],
+            note=f"vano rettangolare attraverso l'asse {vano['axis']}")
+
     for index, hole in enumerate(a.holes, start=1):
         if hole["slot"]:
             add(f"asola{index}_larghezza", f"asola {index} · larghezza", hole["width"],
@@ -765,12 +1034,27 @@ def _features_of(a: BodyAnalysis) -> list[Feature]:
         if hole.get("direzione"):
             params.update({f"direzione_{k}": v
                            for k, v in zip("xyz", hole["direzione"])})
+        if hole.get("lungo"):
+            params.update({f"lungo_{k}": v for k, v in zip("xyz", hole["lungo"])})
         out.append(Feature(
             kind="asola" if hole["slot"] else "foro", body=a.name,
             label=f"{a.name}: {'asola' if hole['slot'] else 'foro'} {index}",
             params=params,
             note=f"asse {_nome_asse(hole)}",
-            buildable=not hole["slot"],
+        ))
+    for index, vano in enumerate(a.windows, start=1):
+        centro, spans = vano["center"], vano["spans"]
+        asse = str(vano["axis"])
+        params = {"centro_x": centro[0], "centro_y": centro[1], "centro_z": centro[2],
+                  "dx": spans[0], "dy": spans[1], "dz": spans[2],
+                  "area": vano["area"]}
+        for axis in vano["assi_sezione"]:
+            params[f"larghezza_{axis.lower()}"] = spans[AXES.index(axis)]
+        params[f"lungo_{asse.lower()}"] = 1.0
+        params[f"profondita_{asse.lower()}"] = spans[AXES.index(asse)]
+        out.append(Feature(
+            kind="finestra", body=a.name, label=f"{a.name}: apertura {index}",
+            params=params, note=f"vano rettangolare, asse {asse}",
         ))
     for omission in a.omitted:
         out.append(Feature(

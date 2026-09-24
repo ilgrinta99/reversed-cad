@@ -14,12 +14,28 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 #: Devono restare allineate a core/freecad/runner.py.
 ARGS_ENV = "TEISER_ARGS"
 ROOT_ENV = "TEISER_REPO_ROOT"
 SUCCESS_SENTINEL = "TEISER_OK"
+
+# L'interprete embedded di FreeCAD apre stdout in ascii — e non basta
+# PYTHONIOENCODING: la console viene comunque creata con la codifica di default.
+# Uno script che stampa «cavità» muore a metà con UnicodeEncodeError, e con lui
+# il sentinella. Qui si riapre la console in UTF-8, una volta per tutti: è il
+# prologo che ogni script eseguito dal runner importa prima di stampare.
+def _console_utf8() -> None:
+    for flusso in (sys.stdout, sys.stderr):
+        try:
+            flusso.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # già chiuso o non riconfigurabile
+            pass
+
+
+_console_utf8()
 
 
 def args() -> list[str]:

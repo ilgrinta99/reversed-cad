@@ -45,6 +45,7 @@ NOMI = {
     "cupola": ("cupola", "cupole"),
     "foro": ("foro", "fori"),
     "asola": ("asola", "asole"),
+    "finestra": ("apertura", "aperture"),
     "libera": ("forma libera", "forme libere"),
     "sfera": ("calotta sferica", "calotte sferiche"),
     "cilindro": ("superficie cilindrica", "superfici cilindriche"),

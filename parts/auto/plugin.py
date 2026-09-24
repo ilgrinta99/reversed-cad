@@ -9,7 +9,8 @@ Due mesh diverse producono due tabelle diverse e due elenchi di domande diversi 
 che è tutto il punto.
 
 Il ricostruttore parametrico è volutamente elementare e dichiara i propri limiti:
-prisma esterno, raccordo verticale, cavità, fori cilindrici. Quello che non sa
+prisma esterno, raccordo verticale, cavità, fori cilindrici, asole e vani
+rettangolari. Quello che non sa
 fare non lo approssima: lo elenca fra le feature non ricostruibili, e diventa una
 domanda. Il confronto modello ↔ mesh misura poi quanto è costato ignorarlo.
 """
@@ -135,6 +136,7 @@ class AutoPart:
             recipe, analysis, registry_, proiezioni,
             sorgente=recipe.get("source", ctx.mesh_path.name),
             contorni=_contorni_mesh(ctx.mesh_path, recipe),
+            omessi=_contorni_omessi(ctx.mesh_path, analysis, recipe),
             decisioni=self._decisioni_prese(ctx),
             scostamento=_scostamento(ctx.run_dir),
         )
@@ -280,7 +282,13 @@ def _cavity(values: dict[str, float], body: dict, key: str) -> dict | None:
              if f"{key}_parete_{side.split('-')[0].lower()}_{side.split('-')[1]}" in values}
     if not walls:
         return None
-    return {"depth": depth, "floor": floor, "walls": walls}
+    out = {"depth": depth, "floor": floor, "walls": walls}
+    box = body.get("cavity_box")
+    if box is not None:
+        # I quattro lati interni misurati: la tasca cade dove la mesh la porta,
+        # anche quando una sporgenza gonfia l'ingombro del corpo.
+        out["bounds"] = [float(v) for v in box]
+    return out
 
 
 def _caps(values: dict[str, float], analysis: dict, key: str) -> list[dict]:
@@ -320,6 +328,12 @@ def _caps(values: dict[str, float], analysis: dict, key: str) -> list[dict]:
 
 def _bores(values: dict[str, float], analysis: dict, key: str,
            slots_as_bores: bool) -> list[dict]:
+    """I fori e le asole del corpo, come li vuole il costruttore.
+
+    Un'asola si costruisce come asola — due testate e un corpo — a meno che la
+    decisione non dica di trattarla come un foro circolare: in quel caso porta il
+    suo diametro e resta un cerchio. Nessuna delle due strade la fa sparire.
+    """
     out = []
     body = next((b for b in analysis["bodies"] if b["key"] == key), None)
     if body is None:
@@ -327,29 +341,78 @@ def _bores(values: dict[str, float], analysis: dict, key: str,
     for feature in analysis["features"]:
         if feature["body"] != body["name"]:
             continue
-        if feature["kind"] == "asola" and not slots_as_bores:
-            continue
-        if feature["kind"] not in ("foro", "asola"):
+        if feature["kind"] not in ("foro", "asola", "finestra"):
             continue
         index = feature["label"].rsplit(" ", 1)[-1]
         prefix = f"{key}_{feature['kind']}{index}"
-        diameter = values.get(f"{prefix}_diametro") or values.get(f"{prefix}_larghezza")
-        depth = values.get(f"{prefix}_profondita")
         params = feature["params"]
-        if diameter is None or depth is None or "centro_x" not in params:
-            continue
-        # Un foro inclinato porta la sua direzione misurata; uno coordinato porta
-        # solo il nome dell'asse, ed è la stessa cosa scritta più corta.
-        direzione = [params[f"direzione_{k}"] for k in "xyz"] \
-            if all(f"direzione_{k}" in params for k in "xyz") else None
-        out.append({
-            "axis": None if direzione else feature["note"].split()[-1],
-            "direction": direzione,
-            "diameter": diameter,
-            "depth": depth,
-            "center": [params["centro_x"], params["centro_y"], params["centro_z"]],
-        })
+        if feature["kind"] == "finestra":
+            foro = _finestra(values, feature, prefix)
+        else:
+            diameter = values.get(f"{prefix}_diametro") or values.get(f"{prefix}_larghezza")
+            depth = values.get(f"{prefix}_profondita")
+            if diameter is None or depth is None or "centro_x" not in params:
+                continue
+            # Un foro inclinato porta la sua direzione misurata; uno coordinato
+            # porta solo il nome dell'asse, ed è la stessa cosa scritta più corta.
+            direzione = [params[f"direzione_{k}"] for k in "xyz"] \
+                if all(f"direzione_{k}" in params for k in "xyz") else None
+            foro = {
+                "kind": feature["kind"],
+                "dim": prefix,
+                "axis": None if direzione else feature["note"].split()[-1],
+                "direction": direzione,
+                "diameter": diameter,
+                "depth": depth,
+                "center": [params["centro_x"], params["centro_y"], params["centro_z"]],
+            }
+            if feature["kind"] == "asola" and not slots_as_bores:
+                lungo = [params.get(f"lungo_{k}") for k in "xyz"]
+                lunghezza = values.get(f"{prefix}_lunghezza")
+                if lunghezza is not None and all(v is not None for v in lungo):
+                    foro["slot"] = True
+                    foro["length"] = lunghezza
+                    foro["long"] = lungo
+        if foro is not None:
+            out.append(foro)
     return out
+
+
+def _finestra(values: dict[str, float], feature: dict, prefix: str) -> dict | None:
+    """Un vano rettangolare, come lo taglia il costruttore: la scatola misurata.
+
+    La scatola porta già tutti e tre gli intervalli — sezione e profondità — in
+    coordinate di mesh: al costruttore non serve ricavarla dall'ingombro del
+    corpo, che è esattamente il passaggio in cui una sporgenza la sbaglierebbe.
+    """
+    params = feature["params"]
+    asse = str(feature["note"].split()[-1]).upper()
+    if asse not in "XYZ" or "centro_x" not in params:
+        return None
+    k = "XYZ".index(asse)
+    centro = [float(params["centro_x"]), float(params["centro_y"]),
+              float(params["centro_z"])]
+    spans = [0.0, 0.0, 0.0]
+    for axis in "XYZ":
+        if axis == asse:
+            span = values.get(f"{prefix}_profondita")
+        else:
+            span = values.get(f"{prefix}_{axis.lower()}")
+        if span is None:
+            return None
+        spans["XYZ".index(axis)] = float(span)
+    box = [centro[i] - spans[i] / 2.0 for i in range(3)] \
+        + [centro[i] + spans[i] / 2.0 for i in range(3)]
+    return {
+        "kind": "finestra",
+        "dim": prefix,
+        "axis": asse,
+        "rect": box,
+        "depth": spans[k],
+        "center": centro,
+        "misure": {f"larghezza_{a.lower()}": values.get(f"{prefix}_{a.lower()}")
+                   for a in "XYZ" if a != asse},
+    }
 
 
 # -- geometria di supporto --------------------------------------------------
@@ -393,13 +456,17 @@ def _distance_to_body(points: np.ndarray, body: dict) -> np.ndarray:
     best = _distance_to_box(points, low, high)
     cavity = body.get("cavity")
     if cavity:
-        walls = cavity.get("walls", {})
-        dentro_low = low + np.array([float(walls.get("X-min", 0.0)),
-                                     float(walls.get("Y-min", 0.0)),
-                                     float(cavity["floor"])])
-        dentro_high = np.array([high[0] - float(walls.get("X-max", 0.0)),
-                                high[1] - float(walls.get("Y-max", 0.0)),
-                                high[2]])
+        bounds = cavity.get("bounds")
+        if bounds:
+            x0, y0, x1, y1 = (float(v) for v in bounds)
+        else:
+            walls = cavity.get("walls", {})
+            x0 = float(low[0]) + float(walls.get("X-min", 0.0))
+            y0 = float(low[1]) + float(walls.get("Y-min", 0.0))
+            x1 = float(high[0]) - float(walls.get("X-max", 0.0))
+            y1 = float(high[1]) - float(walls.get("Y-max", 0.0))
+        dentro_low = np.array([x0, y0, float(low[2]) + float(cavity["floor"])])
+        dentro_high = np.array([x1, y1, float(high[2])])
         if (dentro_high > dentro_low).all():
             best = np.minimum(best, _distance_to_box(points, dentro_low, dentro_high))
     for cap in body.get("caps", []):
@@ -436,6 +503,125 @@ def _distance_to_cap(points: np.ndarray, cap: dict) -> np.ndarray:
 #: Vista -> (asse tagliato, assi che restano). Gli assi residui di `cross_section`
 #: escono già nell'ordine della vista: sezione su Z ⇒ (X, Y) ⇒ pianta.
 _PIANI = {"pianta": (2, (0, 1)), "prospetto": (1, (0, 2)), "laterale": (0, (1, 2))}
+
+
+def _contorni_omessi(mesh_path: Path, analysis: dict,
+                     recipe: dict) -> dict[str, list[dict[str, list]]]:
+    """Il contorno vero di ogni superficie misurata che il modello non porta.
+
+    La tavola dichiara queste assenze con l'ingombro — un rettangolo viola. Ma la
+    mesh quel contorno ce l'ha: il bordo della patch. Disegnarlo al posto del
+    rettangolo è la differenza fra «qui manca qualcosa, grande così» e *qui manca
+    questa forma*, ed è l'unica cosa che permette a chi legge di riconoscere nella
+    tavola la costruzione che ha in mano.
+
+    L'ordine è quello di `drawing.omesse_del_corpo`: stessa selezione, stesso
+    ordinamento per area. La tavola non ha bisogno di sapere *quale* patch è.
+    """
+    from core.mesh.patches import segment
+
+    try:
+        mesh = load_mesh(mesh_path)
+        corpi = segment(mesh, min_area=0.05)
+    except (OSError, ValueError):
+        return {}
+
+    u_viste = {nome: (np.asarray(u, dtype=float), np.asarray(w, dtype=float))
+               for nome, (u, w) in drawing.DIREZIONI.items()}
+
+    fuori: dict[str, list] = {}
+    for indice, body in enumerate(recipe["bodies"]):
+        if indice >= len(corpi):
+            break
+        omesse = sorted(
+            [f for f in analysis.get("features", [])
+             if f.get("body") == body["name"] and f.get("kind") in drawing.KIND_OMESSE],
+            key=lambda f: -float(f.get("params", {}).get("area", 0.0)))
+        per_feature = []
+        for feature in omesse:
+            patch = _patch_dalla_bbox(corpi[indice].patches, feature.get("params", {}))
+            anelli = _contorni_patch(mesh, patch) if patch is not None else []
+            viste: dict[str, list] = {}
+            for nome, (u, w) in u_viste.items():
+                pezzi = [[[float(q @ u), float(q @ w)] for q in anello]
+                         for anello in anelli]
+                if pezzi:
+                    viste[nome] = pezzi
+            per_feature.append(viste)
+        if per_feature:
+            fuori[body["key"]] = per_feature
+    return fuori
+
+
+def _patch_dalla_bbox(patches, params: dict):
+    """La patch il cui ingombro è quello dichiarato dalla feature omessa.
+
+    L'ingombro è la chiave: è l'unica cosa che il registro porta della superficie,
+    ed è esatta — è misurata sulla patch stessa.
+    """
+    try:
+        low = np.asarray([float(params[f"origine_{a}"]) for a in "xyz"])
+        high = low + np.asarray([float(params[f"d{a}"]) for a in "xyz"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    for patch in patches:
+        if (np.abs(patch.bbox_min - low) <= 1e-3).all() and \
+                (np.abs(patch.bbox_max - high) <= 1e-3).all():
+            return patch
+    return None
+
+
+def _contorni_patch(mesh, patch) -> list[np.ndarray]:
+    """Gli anelli di bordo di una patch: i suoi spigoli veri, non il rettangolo."""
+    facce = mesh.faces[patch.faces]
+    lati = np.sort(np.concatenate([facce[:, [0, 1]], facce[:, [1, 2]],
+                                   facce[:, [2, 0]]]), axis=1)
+    unici, conteggi = np.unique(lati, axis=0, return_counts=True)
+    bordo = unici[conteggi == 1]
+    if len(bordo) == 0:
+        return []
+
+    adiacenza: dict[int, list[int]] = {}
+    for a, b in bordo:
+        adiacenza.setdefault(int(a), []).append(int(b))
+        adiacenza.setdefault(int(b), []).append(int(a))
+
+    visti: set[int] = set()
+    anelli: list[np.ndarray] = []
+    for partenza in adiacenza:
+        if partenza in visti:
+            continue
+        anello = [partenza]
+        visti.add(partenza)
+        corrente = partenza
+        while True:
+            prossimi = [v for v in adiacenza.get(corrente, []) if v not in visti]
+            if not prossimi:
+                break
+            corrente = min(prossimi)
+            visti.add(corrente)
+            anello.append(corrente)
+        if len(anello) >= 3:
+            anelli.append(_semplifica(mesh.vertices[np.asarray(anello)]))
+    return anelli
+
+
+def _semplifica(punti: np.ndarray, tol: float = 0.01) -> np.ndarray:
+    """Toglie i punti che stanno sulla retta fra i vicini: la tassellazione non è geometria."""
+    if len(punti) < 3:
+        return punti
+    fuori = [punti[0]]
+    for i in range(1, len(punti) - 1):
+        a, b = fuori[-1], punti[i + 1]
+        ab = b - a
+        lunghezza = float(np.linalg.norm(ab))
+        if lunghezza < 1e-9:
+            continue
+        distanza = float(np.linalg.norm(np.cross(punti[i] - a, ab)) / lunghezza)
+        if distanza > tol:
+            fuori.append(punti[i])
+    fuori.append(punti[-1])
+    return np.asarray(fuori)
 
 
 def _contorni_mesh(mesh_path: Path, recipe: dict) -> dict[str, dict[str, list]]:

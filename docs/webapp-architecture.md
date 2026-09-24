@@ -59,7 +59,8 @@ core/                     GENERICO — nessuna conoscenza del pezzo
 parts/
   auto/                   NESSUN PEZZO — misura la mesh e la ricostruisce
                           con un repertorio dichiarato: prisma, raccordo,
-                          cavità, cupola, fori anche inclinati; e la racconta
+                          cavità, cupola, fori anche inclinati, asole e vani
+                          rettangolari; e la racconta
                           in italiano comune (summary.py)
   teiser/                 SPECIFICO DEL PEZZO
     schema.py             schema di params.json (pydantic) — quote e loro provenienza
@@ -149,7 +150,8 @@ solleva sei ambiguità fra cui la cupola come superficie non ricostruibile.
 `tests/test_mesh_analysis.py` lo verifica.
 
 **Il ricostruttore dichiara i propri limiti.** `parts/auto/build_script.py` sa
-fare prisma, raccordo verticale, cavità e fori cilindrici. Quello che non sa fare
+fare prisma, raccordo verticale, cavità, fori cilindrici, asole e vani
+rettangolari. Quello che non sa fare
 non lo approssima: l'analisi lo elenca fra le feature non ricostruibili, la UI lo
 mostra come decisione («costruisci senza, lo scostamento resterà misurato» /
 «fermati»), e il confronto modello ↔ mesh misura quanto è costata la

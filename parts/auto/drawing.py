@@ -267,15 +267,18 @@ def _incolonna(richiami: list[tavola.Richiamo], key: str, body: dict,
     return fuori
 
 
-def _omesse_sulle_viste(key: str, body: dict, omesse: list[dict], scala: float
+def _omesse_sulle_viste(key: str, body: dict, omesse: list[dict], scala: float,
+                        omessi: list[dict[str, list]] | None = None
                         ) -> tuple[list[tavola.Sagoma], list[tavola.Richiamo]]:
-    """Impronta di ogni superficie omessa sulle tre viste, e il richiamo che la nomina.
+    """Dove il modello non arriva, la tavola disegna quel che la mesh ha davvero.
 
-    L'impronta è il rettangolo d'ingombro della patch nella vista, non il suo
-    contorno vero: il contorno vero di una superficie libera è la superficie
-    stessa, e ridisegnarla equivarrebbe a dire che il modello la contiene. Il
-    rettangolo dice l'unica cosa onesta — *qui c'è qualcosa che il solido non
-    porta, e occupa tanto così*.
+    Il contorno vero di ogni superficie omessa — il bordo della patch, proiettato
+    — quando la mesh lo porta; il rettangolo d'ingombro solo come ripiego, quando
+    il bordo non è stato recuperato. La differenza è quella fra *qui c'è qualcosa
+    che il solido non porta, e occupa tanto così* e il riconoscere sulla carta la
+    forma che si ha in mano: l'apertura della cupola, il raccordo di base, la
+    nervatura. Il layer resta lo stesso — viola, `OMESSO` — perché la lettura non
+    cambia: **questo il modello non ce l'ha**.
     """
     sagome: list[tavola.Sagoma] = []
     richiami: list[tavola.Richiamo] = []
@@ -291,14 +294,23 @@ def _omesse_sulle_viste(key: str, body: dict, omesse: list[dict], scala: float
         if riquadro is None:
             continue
         low, high = riquadro
+        contorni = (omessi[indice - 1]
+                    if omessi and indice - 1 < len(omessi) else {})
         disegnate = []
         for nome in DIREZIONI:
             (x0, y0), (x1, y1) = _punto_vista(nome, low), _punto_vista(nome, high)
             if max(x1 - x0, y1 - y0) * scala < IMPRONTA_MINIMA_MM:
                 continue
-            sagome.append(tavola.Sagoma(
-                f"{key}_{nome}", ((x0, y0), (x1, y0), (x1, y1), (x0, y1)),
-                stile='omesso'))
+            veri = contorni.get(nome)
+            if veri:
+                for anello in veri:
+                    sagome.append(tavola.Sagoma(
+                        f"{key}_{nome}", tuple(tuple(p) for p in anello),
+                        stile='omesso'))
+            else:
+                sagome.append(tavola.Sagoma(
+                    f"{key}_{nome}", ((x0, y0), (x1, y0), (x1, y1), (x0, y1)),
+                    stile='omesso'))
             # Il richiamo parte dall'angolo dell'impronta rivolto verso l'esterno
             # del corpo: la linea di richiamo non attraversa la feature che indica.
             cx, cy = _punto_vista(nome, centro)
@@ -326,16 +338,19 @@ def _omesse_sulle_viste(key: str, body: dict, omesse: list[dict], scala: float
 
 def fogli(recipe: dict, analysis: dict, registry: Registry, proiezioni: dict,
           *, sorgente: str, contorni: dict | None = None,
+          omessi: dict | None = None,
           decisioni: list[dict] | None = None,
           scostamento: dict | None = None) -> list[tavola.FoglioSpec]:
     """Tutta la tavola: assieme, un foglio per corpo, le sezioni, il registro."""
     valori = registry.values()
     contorni = contorni or {}
+    omessi = omessi or {}
     out = [_foglio_assieme(recipe, proiezioni, sorgente)]
     for body in recipe["bodies"]:
         out.append(_foglio_corpo(body, valori, proiezioni, sorgente,
                                  contorni.get(body["key"], {}),
-                                 omesse_del_corpo(analysis, body["name"])))
+                                 omesse_del_corpo(analysis, body["name"]),
+                                 omessi.get(body["key"])))
         if _ha_interno(body):
             out.append(_foglio_sezioni(body, valori, proiezioni, sorgente))
     out.extend(_fogli_registro(registry, analysis, sorgente,
@@ -455,7 +470,8 @@ def _foglio_assieme(recipe: dict, proiezioni: dict, sorgente: str) -> tavola.Fog
 
 def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
                   sorgente: str, contorni: dict,
-                  omesse: list[dict] | None = None) -> tavola.FoglioSpec:
+                  omesse: list[dict] | None = None,
+                  omessi: list[dict[str, list]] | None = None) -> tavola.FoglioSpec:
     key = body["key"]
     g = _griglia(proiezioni, key,
                  {"pianta": "pianta", "prospetto": "prospetto", "laterale": "laterale"})
@@ -533,7 +549,8 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
     # Dove la mesh ha una superficie che il repertorio non costruisce, la vista
     # porta la sua impronta invece di restare muta: è l'unico posto in cui chi
     # legge la tavola può accorgersene guardando il pezzo, non una tabella.
-    impronte, richiami_omesse = _omesse_sulle_viste(key, body, list(omesse or []), scala)
+    impronte, richiami_omesse = _omesse_sulle_viste(key, body, list(omesse or []),
+                                                    scala, omessi)
     sagome.extend(impronte)
     richiami.extend(richiami_omesse)
 
@@ -555,7 +572,7 @@ def _foglio_corpo(body: dict, valori: dict[str, float], proiezioni: dict,
     if contorni:
         legenda.append("Linea rossa a tratti = profilo della mesh")
     if impronte:
-        legenda.append(f"Linea viola = ingombro di {len(omesse or [])} superfici "
+        legenda.append(f"Linea viola = contorno vero di {len(omesse or [])} superfici "
                        f"misurate che il modello non porta")
     if legenda:
         note.append(".  ".join(legenda) + ".")
@@ -700,19 +717,30 @@ def _asse_di_lettura(bore: dict) -> tuple[str, str]:
 
 
 def _record_fori(key: str, body: dict, valori: dict[str, float]) -> list[dict]:
-    """Un dizionario per foro con quel che serve a quotarlo: vista, punto, valori."""
+    """Un dizionario per foro con quel che serve a quotarlo: vista, punto, valori.
+
+    La chiave del registro la porta la ricetta (`dim`), non la posizione in
+    elenco: fori, asole e aperture convivono nello stesso elenco e una posizione
+    non dice a quale famiglia appartiene la voce.
+    """
     records = []
     for i, bore in enumerate(body.get("bores", []), start=1):
         asse, etichetta = _asse_di_lettura(bore)
         nome = _VISTA_DI_ASSE.get(asse, "pianta")
+        prefix = bore.get("dim")
         records.append({
             "i": i, "asse": asse, "etichetta_asse": etichetta,
+            "kind": bore.get("kind", "foro"),
             "inclinato": bool(bore.get("direction")),
             "vista": f"{key}_{nome}",
             "punto": _punto_vista(nome, bore["center"]),
-            "d": valori.get(f"{key}_foro{i}_diametro"),
-            "w": valori.get(f"{key}_asola{i}_larghezza"),
-            "p": valori.get(f"{key}_foro{i}_profondita"),
+            "d": valori.get(f"{prefix}_diametro") if prefix
+            else valori.get(f"{key}_foro{i}_diametro"),
+            "w": valori.get(f"{prefix}_larghezza") if prefix
+            else valori.get(f"{key}_asola{i}_larghezza"),
+            "p": valori.get(f"{prefix}_profondita") if prefix
+            else valori.get(f"{key}_foro{i}_profondita"),
+            "misure": bore.get("misure"),
         })
     return records
 
@@ -730,9 +758,15 @@ def _riga_profondita(r: dict) -> str:
 
 
 def _richiamo_singolo(r: dict) -> tavola.Richiamo | None:
-    """Il richiamo di un singolo foro (o asola). Testo identico alla versione storica."""
+    """Il richiamo di un singolo foro, asola o apertura."""
     etichetta = []
-    if r["d"] is not None:
+    if r.get("kind") == "finestra":
+        misure = r.get("misure") or {}
+        lati = [v for v in misure.values() if v is not None]
+        if len(lati) != 2:
+            return None
+        etichetta.append("apertura %d  %s × %s" % (r["i"], _num(lati[0]), _num(lati[1])))
+    elif r["d"] is not None:
         etichetta.append(u"foro %d  Ø%s" % (r["i"], _num(r["d"])))
     elif r["w"] is not None:
         etichetta.append("asola %d  larghezza %s" % (r["i"], _num(r["w"])))
@@ -779,6 +813,12 @@ def _foglio_sezioni(body: dict, valori: dict[str, float], proiezioni: dict,
     sx, sy, sz = (float(v) for v in body["size"])
     cavity = body.get("cavity") or {}
     pareti = cavity.get("walls", {})
+    # I lati interni misurati, se ci sono: una quota di parete si tende fra la
+    # faccia interna *dove sta* e il filo esterno a quella distanza. Con una
+    # sporgenza che gonfia l'ingombro, il filo ricavato dall'ingombro sarebbe
+    # dalla parte sbagliata — la quota misurerebbe la sporgenza, non la parete.
+    lati = cavity.get("bounds")
+    x0, y0, x1, y1 = (float(v) for v in lati) if lati else (ox, oy, ox + sx, oy + sy)
     quote: list[tavola.Quota] = []
 
     def aggiungi(vista_id, dim_id, p1, p2, offset, orizzontale=True, fuori=None):
@@ -786,30 +826,36 @@ def _foglio_sezioni(body: dict, valori: dict[str, float], proiezioni: dict,
             quote.append(tavola.Quota(vista_id, p1, p2, offset, _num(valori[dim_id]),
                                       orizzontale=orizzontale, fuori=fuori))
 
+    def parete_x(vista_id: str, dim_id: str, dim: str, interno: float, segno: float,
+                 offset: float) -> None:
+        spessore = float(pareti[dim])
+        aggiungi(vista_id, dim_id, (interno, oz + sz), (interno + segno * spessore, oz + sz),
+                 offset, fuori=True)
+
+    def parete_y(vista_id: str, dim_id: str, dim: str, interno: float, segno: float,
+                 offset: float) -> None:
+        spessore = float(pareti[dim])
+        aggiungi(vista_id, dim_id, (interno, oz + sz), (interno + segno * spessore, oz + sz),
+                 offset, fuori=True)
+
     # A-A: piano verticale longitudinale. Si leggono le pareti in X e il fondo.
     if "X-min" in pareti:
-        aggiungi(f"{key}_sezA", f"{key}_parete_x_min",
-                 (ox, oz + sz), (ox + float(pareti["X-min"]), oz + sz), 9.0, fuori=True)
+        parete_x(f"{key}_sezA", f"{key}_parete_x_min", "X-min", x0, -1.0, 9.0)
     if "X-max" in pareti:
-        aggiungi(f"{key}_sezA", f"{key}_parete_x_max",
-                 (ox + sx - float(pareti["X-max"]), oz + sz), (ox + sx, oz + sz), 18.0,
-                 fuori=True)
+        parete_x(f"{key}_sezA", f"{key}_parete_x_max", "X-max", x1, +1.0, 18.0)
     if cavity:
         fondo = oz + float(cavity["floor"])
         aggiungi(f"{key}_sezA", f"{key}_fondo_spessore", (ox, oz), (ox, fondo), -14.0,
                  orizzontale=False, fuori=True)
         aggiungi(f"{key}_sezA", f"{key}_cavita_profondita",
-                 (ox + sx, fondo), (ox + sx, fondo + float(cavity["depth"])), 14.0,
+                 (x1, fondo), (x1, fondo + float(cavity["depth"])), 14.0,
                  orizzontale=False)
 
     # B-B: piano verticale trasversale. Si leggono le pareti in Y e l'altezza.
     if "Y-min" in pareti:
-        aggiungi(f"{key}_sezB", f"{key}_parete_y_min",
-                 (oy, oz + sz), (oy + float(pareti["Y-min"]), oz + sz), 9.0, fuori=True)
+        parete_y(f"{key}_sezB", f"{key}_parete_y_min", "Y-min", y0, -1.0, 9.0)
     if "Y-max" in pareti:
-        aggiungi(f"{key}_sezB", f"{key}_parete_y_max",
-                 (oy + sy - float(pareti["Y-max"]), oz + sz), (oy + sy, oz + sz), 18.0,
-                 fuori=True)
+        parete_y(f"{key}_sezB", f"{key}_parete_y_max", "Y-max", y1, +1.0, 18.0)
     aggiungi(f"{key}_sezB", f"{key}_ingombro_z", (oy + sy, oz), (oy + sy, oz + sz), 14.0,
              orizzontale=False)
     aggiungi(f"{key}_sezC", f"{key}_ingombro_x", (ox, oy), (ox + sx, oy), -22.0)
@@ -903,7 +949,7 @@ def _nel_modello(feature: dict, recipe: dict | None) -> bool:
     kind = feature.get("kind")
     if kind in ("prisma", "cavita"):
         return kind != "cavita" or bool(corpo.get("cavity"))
-    if kind not in ("foro", "asola", "cupola"):
+    if kind not in ("foro", "asola", "finestra", "cupola"):
         return False                       # libera, sfera, cilindro, arco
     p = feature.get("params", {})
     try:

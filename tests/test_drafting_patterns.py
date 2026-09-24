@@ -154,3 +154,19 @@ def test_asola_resta_richiamo_singolo():
     richiami = list(drawing._richiami_fori("c1", body, valori))
     assert len(richiami) == 1
     assert richiami[0].righe[0].startswith("asola 1  larghezza 6.00")
+
+
+def test_un_apertura_ha_il_suo_richiamo():
+    """Un'apertura non è un foro senza diametro: si quota con i suoi due lati."""
+    body = {"key": "c1", "origin": [0, 0, 0], "size": [40, 25, 10],
+            "bores": [{"kind": "finestra", "dim": "c1_finestra1", "axis": "Y",
+                       "rect": [10, -0.5, 2, 20, 2.5, 6], "depth": 3.0,
+                       "center": [15.0, 1.0, 4.0],
+                       "misure": {"larghezza_x": 10.0, "larghezza_z": 4.0}}]}
+    valori = {"c1_finestra1_larghezza_x": 10.0, "c1_finestra1_larghezza_z": 4.0,
+              "c1_finestra1_profondita": 3.0}
+    richiami = list(drawing._richiami_fori("c1", body, valori))
+    assert len(richiami) == 1
+    assert richiami[0].righe[0] == "apertura 1  10.00 × 4.00"
+    assert "profondità 3.00" in richiami[0].righe[1]
+    assert richiami[0].vista == "c1_prospetto"

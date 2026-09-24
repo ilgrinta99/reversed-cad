@@ -143,6 +143,11 @@ def run_script(
     # FreeCAD in container non ha display: senza questo alcuni build Qt provano
     # comunque a contattare un X server e falliscono tardi e male.
     full_env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # L'interprete embedded di FreeCAD (cask macOS) non guarda il locale e apre
+    # stdout in ascii: un `print` con un accento — «cavità» — solleva
+    # UnicodeEncodeError a metà script, e il sentinella non arriva mai. Non è un
+    # errore dello script: è l'ambiente in cui gira, quindi si corregge qui.
+    full_env.setdefault("PYTHONIOENCODING", "utf-8")
 
     started = time.monotonic()
     proc = subprocess.Popen(

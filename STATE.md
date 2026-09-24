@@ -6,8 +6,10 @@ non è più cablata sul TAISER — si carica una mesh e la si misura. FASE 8: la
 FASE 9: la mesh può essere OBJ, STL, PLY o WRL. FASE 10: quello che il modello
 non porta si vede sulla tavola, con posizione e ingombro. FASE 11: la cupola non
 era una superficie libera — è un paraboloide, e adesso si costruisce. FASE 12: la
-pagina si legge senza essere del mestiere.
-**Aggiornato:** 2026-08-26
+pagina si legge senza essere del mestiere. FASE 13: sulla tavola c'è ogni
+elemento del modello — pareti, fori, asole, aperture — e ciò che il modello non
+porta ha il suo contorno vero, non un rettangolo.
+**Aggiornato:** 2026-09-24
 
 ## Fatto
 - [x] FASE 1 — briefing: quote della tavola, misura della mesh, discrepanze D1–D8, ambiguità A–G
@@ -29,6 +31,9 @@ pagina si legge senza essere del mestiere.
       scostamento mediano da 2.347 a 0.027 mm sulla mesh di prova
 - [x] FASE 12 — UX: un pulsante, un riepilogo in italiano comune, e il gergo
       dietro l'interruttore «Modalità tecnica»
+- [x] FASE 13 — ogni elemento del modello in tavola: pareti misurate anche quando
+      il raccordo di base le fonde, asole e vani rettangolari costruiti, contorno
+      vero delle superfici non ricostruite
 
 ## Uscite
 | file | contenuto |
@@ -323,6 +328,74 @@ Tre scelte che valgono più delle altre:
    dei dettagli è rimasta fuori, il riepilogo dice «ricostruito in parte», perché
    lo scostamento pesa i *punti* della mesh e una cupola fitta di triangoli lo
    tiene basso da sola.
+
+### Ogni elemento del modello in tavola (FASE 13)
+
+Confronto fra il modello e la sua tavola sulla mesh del progetto: il disegno
+mancava di parti che il pezzo ha. Quattro cause, tutte chiuse; ognuna con il suo
+test in `tests/`.
+
+1. **Le pareti fuse col raccordo di base non si misuravano.** La tassellazione
+   salda la faccia esterna al raccordo: la patch non è più un piano e l'analisi la
+   scartava. Senza pareti la cavità veniva tagliata a *tutto spessore* — 80.000
+   invece di 71.274 × 41.624 — e il foro Ø3.005 che attraversa la parete destra
+   non trovava materiale da asportare: sulla tavola non c'era nessun foro.
+   `_read_outer_faces` legge ora anche la patch non piana il cui ingombro tocca il
+   contorno (`soft_outer`), e — per la faccia che una sporgenza nasconde, come la
+   parete destra dietro la cupola — il piano più esterno che copre la sezione e
+   sta **fuori dalla cavità** (`_read_outer_faces_dietro`). Spessori misurati:
+   X-min 1.293, X-max 1.293, Y 2.188, fondo 1.634 — gli stessi di
+   `docs/lost+found_design.md` §5-B, ritrovati da un codice che del TAISER non sa
+   niente. La cavità porta ora la sua **scatola in coordinate assolute**
+   (`cavity_box`), che il costruttore usa al posto delle pareti ricavate
+   dall'ingombro: è l'unico modo perché una sporgenza che gonfia l'ingombro non
+   sposti la tasca.
+
+2. **Le asole sparivano.** Scegliendo «asole» la decisione, non si costruivano —
+   si dichiaravano soltanto; scegliendo «fori» diventavano cerchi. Ora la
+   ricetta porta l'asola com'è: larghezza, lunghezza, **direzione lunga** (il
+   vettore fra le due testate, misurato), profondità. `build_script.py` taglia lo
+   stadio vero — due cilindri e il corpo che li unisce. Le 4 asole del coperchio
+   (7.206 × 4.592 e 7.561 × 4.764) sono nel modello e sulle viste.
+
+3. **I vani rettangolari non esistevano per l'analisi.** Un'apertura o una tasca
+   rettangolare non ha cilindri che la dimostrino: il vano del connettore sulla
+   parete frontale (6.467 × 4.005 × 2.188), la tasca laterale sinistra
+   (19.79 × 11.005, 0.603 di profondità dal lato cavità) e la tasca grande del
+   coperchio (12.03 × 12.865 × 0.502) non erano né fori né asole né *dichiarati* —
+   sparivano fra la misura e la tavola. `_read_windows` li riconosce da quattro
+   piani che formano un canale, ne misura le tre quote, e il costruttore li taglia
+   come scatole misurate. In `SEZIONE B-B` il vano del connettore attraversa
+   finalmente la parete.
+
+4. **Le superfici dichiarate avevano solo il rettangolo d'ingombro.** Ora ne
+   portano il **contorno vero**: il bordo della patch, proiettato sulle tre viste
+   (`_contorni_omessi` in `parts/auto/plugin.py`). Sulla scatola si riconoscono così
+   il raccordo di base, le due nervature, le aperture della cupola, il rilievo
+   dentro la tasca; sul coperchio le tasche ellittiche e le calotte. Il layer resta
+   `OMESSO` (viola): la lettura non cambia — *questo il modello non ce l'ha* — ma
+   la forma sì.
+
+In più, una trappola d'ambiente che impediva alla pipeline di girare sul Mac:
+l'interprete embedded di FreeCAD apre la console in ascii e non guarda
+`PYTHONIOENCODING`; uno script che stampa «cavità» moriva a metà e il sentinella
+non arrivava. `core/freecad/script.py` riapre stdout in UTF-8 nel prologo che ogni
+script importa.
+
+**Verifica** (mesh `input/model.obj`, FreeCAD 1.1.3, 11 fogli A3): 44 quote,
+scostamento mediana 0.0117 / media 0.4137 / p90 1.9503 mm. Il foro Ø3.005 si vede
+in `VISTA LATERALE DESTRA` e in `SEZIONE C-C`; il vano del connettore in
+`SEZIONE B-B`; le 4 asole del coperchio in pianta e in `SEZIONE C-C`; la tasca del
+coperchio in pianta. Sulla tavola restano in viola — col loro contorno — solo le
+superfici che il repertorio non costruisce: raccordo di base, nervature, aperture
+della cupola, archetti spaiati delle colonnine.
+
+**Resta aperto:** le asole di serraggio nelle colonnine. Le loro testate sono
+ellittiche (Tinkercad scala in modo non uniforme) e il fit circolare le legge
+R1.99 invece di R0.81: costruirle da quel raggio inventerebbe un foro largo il
+doppio. Restano dichiarate, col contorno vero; per costruirle serve un fit
+ellittico delle testate — lo stesso lavoro che la decisione A aveva escluso per
+il raccordo di base.
 
 ### Aperto sulla web app
 1. **Immagine Docker mai costruita davvero.** FreeCAD conda-forge è stato verificato

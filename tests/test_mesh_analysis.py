@@ -441,3 +441,62 @@ def test_un_foro_inclinato_porta_la_sua_direzione(tmp_path: Path):
     assert "inclinato" in foro.note
     # E non finisce fra le presenze dichiarate: è nel modello.
     assert not any(f.kind == "cilindro" for f in analysis.features)
+
+
+def test_la_parete_si_misura_anche_quando_il_raccordo_la_fonde():
+    """La faccia esterna fusa col raccordo di base resta la faccia esterna.
+
+    Sulla scatola del progetto il fondo e la parete X-min sono un'unica patch
+    «libera» — la tassellazione le ha saldate al raccordo. Senza leggerle come
+    facce esterne la cavità veniva tagliata a tutto spessore: nel modello
+    sparivano le pareti, e il foro Ø3 che le attraversa non trovava materiale.
+    """
+    mesh = Path("input/model.obj")
+    if not mesh.is_file():
+        pytest.skip("input/model.obj non disponibile")
+    body = analyze(mesh).bodies[0]
+    assert body.soft_outer, "nessuna faccia esterna fusa col raccordo"
+    assert body.walls["X-min"] == pytest.approx(1.293, abs=1e-3)
+    assert body.walls["X-max"] == pytest.approx(1.293, abs=1e-3)
+    assert body.walls["Z-min"] == pytest.approx(1.634, abs=1e-3)
+    assert body.cavity_box is not None
+    x0, y0, x1, y1 = body.cavity_box
+    assert x1 - x0 == pytest.approx(71.274, abs=1e-3)
+    assert y1 - y0 == pytest.approx(41.624, abs=1e-3)
+
+
+def test_un_apertura_rettangolare_non_sparisce_piu():
+    """Un vano rettangolare non ha cilindri che lo dimostrino.
+
+    Prima cadeva fuori da ogni lettura — non foro, non asola, non dichiarato — e
+    finiva nel nulla: nel modello non c'era e sulla tavola non se ne parlava. Ora
+    è una feature con le sue tre quote, e il costruttore la taglia.
+    """
+    mesh = Path("input/model.obj")
+    if not mesh.is_file():
+        pytest.skip("input/model.obj non disponibile")
+    analysis = analyze(mesh)
+    finestre = [f for f in analysis.features if f.kind == "finestra"]
+    assert finestre, "nessun vano rettangolare riconosciuto"
+
+    scatola = [f for f in finestre if f.body == analysis.bodies[0].name]
+    frontale = [f for f in scatola if f.note.endswith("Y")]
+    assert len(frontale) == 1
+    vano = frontale[0]
+    assert vano.buildable
+    assert vano.params["larghezza_x"] == pytest.approx(6.467, abs=1e-2)
+    assert vano.params["larghezza_z"] == pytest.approx(4.005, abs=1e-2)
+    assert vano.params["profondita_y"] == pytest.approx(2.188, abs=1e-2)
+
+    # E le quote sono nel registro: nessun numero entra nel modello senza.
+    ids = {m.id for m in analysis.measurements}
+    assert {f"c1_finestra{scatola.index(vano) + 1}_x",
+            f"c1_finestra{scatola.index(vano) + 1}_z",
+            f"c1_finestra{scatola.index(vano) + 1}_profondita"} <= ids
+
+    coperchio = [f for f in finestre if f.body == analysis.bodies[1].name]
+    assert len(coperchio) == 1
+    tasca = coperchio[0].params
+    assert tasca["larghezza_x"] == pytest.approx(12.03, abs=1e-2)
+    assert tasca["larghezza_y"] == pytest.approx(12.865, abs=1e-2)
+    assert tasca["profondita_z"] == pytest.approx(0.502, abs=1e-3)
